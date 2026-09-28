@@ -4,7 +4,7 @@ go 1.25.8
 
 require (
 	github.com/mattn/go-sqlite3 v1.14.16
-	github.com/viant/authz v0.0.0
+	github.com/viant/authz v0.0.0-20260928224026-ae44aa9ad366
 	github.com/viant/datly v1.0.1-0.20260928172836-5aad1bdd5494
 	github.com/viant/mcp-protocol v0.19.0
 	github.com/viant/scy v0.35.1-0.20260914041206-699e6c909726
@@ -105,5 +105,3 @@ require (
 	golang.org/x/sys v0.47.0 // indirect
 	modernc.org/sqlite v1.45.0
 )
-
-replace github.com/viant/authz => ..
