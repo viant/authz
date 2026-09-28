@@ -4,10 +4,11 @@ go 1.25.8
 
 require (
 	github.com/mattn/go-sqlite3 v1.14.16
-	github.com/viant/authz v0.0.0-20260928224026-ae44aa9ad366
+	github.com/viant/authz v0.0.0-20260928232107-6a9bf1e79cc5
 	github.com/viant/datly v1.0.1-0.20260928172836-5aad1bdd5494
 	github.com/viant/mcp-protocol v0.19.0
 	github.com/viant/scy v0.35.1-0.20260914041206-699e6c909726
+	github.com/viant/structql v0.5.4
 	github.com/viant/xdatly v1.0.1-0.20260927175016-ff38d5bca9b6
 )
 
@@ -47,7 +48,6 @@ require (
 	github.com/viant/mcp v0.24.0 // indirect
 	github.com/viant/sqlparser v0.13.1-0.20260921232033-929f6f50ccce // indirect
 	github.com/viant/sqlx v0.26.1-0.20260927121633-cbe6dd70f752 // indirect
-	github.com/viant/structql v0.5.4 // indirect
 	github.com/viant/toolbox v0.39.0 // indirect
 	github.com/viant/velty v0.4.1-0.20260915052314-fca47c0595f8 // indirect
 	github.com/viant/xlsy v0.3.1 // indirect
