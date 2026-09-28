@@ -31,6 +31,20 @@ strings and full-width integers; they are never rounded through float64. Provide
 must verify the credential and supply subject, tenant, issuer and an expiry lease.
 The library does not trust roles or entity IDs from operation request bodies.
 
+## Permissions per entity
+
+`Facts.EntityPermissions` is a list of `EntityPermission` records, with type, ID
+and a list of opaque permissions beside each ID. It is not a map or an entity
+hierarchy. `HasPermission` checks exact identity and permission membership; a
+permission named `admin` does not imply a global role, ancestor inheritance or
+cross-namespace access. Business logic defines the meaning of permission names.
+Signed OAuth facts can carry this list; clients cannot supply verified grants.
+
+```json
+[{"type":"advertiser","id":"123","permissions":["read"]},
+ {"type":"advertiser","id":"456","permissions":["read","edit"]}]
+```
+
 ## Policy administration
 
 `Administration.Get` currently permits every authenticated caller within its

@@ -25,11 +25,12 @@ type Entity struct {
 // Facts must originate from a verified OAuth/OIDC identity and its configured
 // authorization provider. Exposures are feature entitlements, not publications.
 type Facts struct {
-	Subject   string   `json:"subject"`
-	Tenant    string   `json:"tenant"`
-	Issuer    string   `json:"issuer"`
-	Roles     []string `json:"roles"`
-	Exposures []string `json:"exposures"`
+	EntityPermissions []EntityPermission `json:"entityPermissions,omitempty"`
+	Subject           string             `json:"subject"`
+	Tenant            string             `json:"tenant"`
+	Issuer            string             `json:"issuer"`
+	Roles             []string           `json:"roles"`
+	Exposures         []string           `json:"exposures"`
 	// EntityGroups is the canonical typed authorization fact.
 	EntityGroups EntityGroups `json:"allowedEntities,omitempty"`
 	// Entities is a compatibility view for existing flat fact providers.

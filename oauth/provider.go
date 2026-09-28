@@ -24,6 +24,7 @@ type Config struct {
 }
 
 type Claims struct {
+	EntityPermissions []access.EntityPermission `json:"entityPermissions,omitempty"`
 	jwt.RegisteredClaims
 	Tenant    string   `json:"tenant"`
 	Roles     []string `json:"roles"`
@@ -36,6 +37,7 @@ type Claims struct {
 }
 
 type wireClaims struct {
+	EntityPermissions []access.EntityPermission `json:"entityPermissions,omitempty"`
 	jwt.RegisteredClaims
 	Tenant          string          `json:"tenant"`
 	Roles           []string        `json:"roles,omitempty"`
@@ -61,7 +63,7 @@ func (c Claims) MarshalJSON() ([]byte, error) {
 			return nil, err
 		}
 	}
-	return json.Marshal(wireClaims{RegisteredClaims: c.RegisteredClaims, Tenant: c.Tenant, Roles: c.Roles, Exposures: c.Exposures, AllowedEntities: raw})
+	return json.Marshal(wireClaims{RegisteredClaims: c.RegisteredClaims, Tenant: c.Tenant, Roles: c.Roles, Exposures: c.Exposures, AllowedEntities: raw, EntityPermissions: c.EntityPermissions})
 }
 
 // Preserve malformed legacy values on the wire so verification can deny them
@@ -114,7 +116,7 @@ func (c *Claims) UnmarshalJSON(raw []byte) error {
 	if err := json.Unmarshal(raw, &wire); err != nil {
 		return err
 	}
-	*c = Claims{RegisteredClaims: wire.RegisteredClaims, Tenant: wire.Tenant, Roles: wire.Roles, Exposures: wire.Exposures}
+	*c = Claims{RegisteredClaims: wire.RegisteredClaims, Tenant: wire.Tenant, Roles: wire.Roles, Exposures: wire.Exposures, EntityPermissions: wire.EntityPermissions}
 	if len(wire.AllowedEntities) == 0 {
 		return nil
 	}
@@ -230,5 +232,8 @@ func (p *Provider) Resolve(ctx context.Context) (access.Facts, error) {
 			}
 		}
 	}
-	return access.Facts{Subject: claims.Subject, Tenant: claims.Tenant, Issuer: claims.Issuer, Roles: claims.Roles, Exposures: claims.Exposures, EntityGroups: claims.EntityGroups, Entities: flat, ValidUntil: claims.ExpiresAt.Time}, nil
+	if err := access.ValidateEntityPermissions(claims.EntityPermissions); err != nil {
+		return access.Facts{}, access.ErrDenied
+	}
+	return access.Facts{EntityPermissions: claims.EntityPermissions, Subject: claims.Subject, Tenant: claims.Tenant, Issuer: claims.Issuer, Roles: claims.Roles, Exposures: claims.Exposures, EntityGroups: claims.EntityGroups, Entities: flat, ValidUntil: claims.ExpiresAt.Time}, nil
 }
