@@ -23,3 +23,22 @@ func TestEntityPermissionsAreAListAndNeverImplyGlobalOrHierarchicalAccess(t *tes
 		}
 	}
 }
+
+func TestPermissionIndexIsNarrowedAndLookupFriendly(t *testing.T) {
+	grants := []EntityPermission{{Type: "advertiser", ID: "123", Permissions: []string{"read", "edit"}}, {Type: "advertiser", ID: "456", Permissions: []string{"admin", "read"}}, {Type: "publisher", ID: "127", Permissions: []string{"read"}}}
+	index, err := IndexEntityPermissions(grants, Decision{Bounded: true, Entities: []Entity{{Type: "advertiser", ID: "123"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(index) != 1 || len(index["advertiser"]["read"]) != 1 || index["advertiser"]["read"][0] != "123" || len(index["advertiser"]["admin"]) != 0 {
+		t.Fatal("permission index widened decision", index)
+	}
+	grants[0].ID = "tampered"
+	grants[0].Permissions[0] = "changed"
+	if index["advertiser"]["read"][0] != "123" {
+		t.Fatal("index shares provider storage")
+	}
+	if _, err = IndexEntityPermissions(grants, Decision{}); err == nil {
+		t.Fatal("unbounded decision accepted")
+	}
+}
