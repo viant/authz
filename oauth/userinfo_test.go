@@ -53,6 +53,14 @@ func TestUserInfoProviderVerifiesIdentityAndSeparatesFacts(t *testing.T) {
 	if requests != 1 {
 		t.Fatalf("user-info calls=%d", requests)
 	}
+	identity, err := provider.ResolveIdentity(WithBearer(context.Background(), valid))
+	if err != nil || identity.Subject != "alice" || identity.Tenant != "21" || identity.Issuer != "https://identity.example" ||
+		len(identity.Roles) != 0 || len(identity.Exposures) != 0 || len(identity.EntityPermissions) != 0 || requests != 1 {
+		t.Fatalf("identity-only facts=%+v error=%v user-info calls=%d", identity, err, requests)
+	}
+	if _, err := provider.ResolveIdentity(WithBearer(context.Background(), "invalid")); err == nil {
+		t.Fatal("identity-only resolver accepted an invalid token")
+	}
 	responseBody = `{"status":"ok","info":{"uid":"different-stored-id","subject":"alice","userId":7,"accountId":21,"roles":["reader"],"features":["export"],"entityPermissions":[]}}`
 	if _, err := provider.Resolve(WithBearer(context.Background(), valid)); err != nil {
 		t.Fatalf("a verified subject must not be confused with the stored UID: %v", err)

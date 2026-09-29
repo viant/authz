@@ -80,17 +80,9 @@ func loopbackHost(host string) bool {
 }
 
 func (p *UserInfoProvider) Resolve(ctx context.Context) (access.Facts, error) {
-	if p == nil || ctx == nil || ctx.Err() != nil {
-		return access.Facts{}, access.ErrDenied
-	}
-	bearer, _ := ctx.Value(tokenKey{}).(string)
-	if bearer == "" {
-		return access.Facts{}, access.ErrDenied
-	}
-	claims := &userInfoClaims{}
-	_, err := jwt.ParseWithClaims(bearer, claims, p.config.Keyfunc, jwt.WithValidMethods(p.config.Algorithms), jwt.WithIssuer(p.config.Issuer), jwt.WithAudience(p.config.Audience), jwt.WithExpirationRequired(), jwt.WithIssuedAt())
-	if err != nil || claims.Subject == "" || claims.UserID <= 0 || claims.AccountID <= 0 || claims.ExpiresAt == nil || !claims.ExpiresAt.After(time.Now()) || claims.ExpiresAt.Time.After(time.Now().Add(time.Hour)) {
-		return access.Facts{}, access.ErrDenied
+	claims, bearer, err := p.verifiedClaims(ctx)
+	if err != nil {
+		return access.Facts{}, err
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, p.config.URL, nil)
 	if err != nil {
@@ -122,6 +114,34 @@ func (p *UserInfoProvider) Resolve(ctx context.Context) (access.Facts, error) {
 	return access.Facts{Subject: claims.Subject, Tenant: strconv.Itoa(claims.AccountID), Issuer: claims.Issuer,
 		Roles: info.Roles, Exposures: info.Features, EntityGroups: groups,
 		EntityPermissions: info.EntityPermissions, ValidUntil: claims.ExpiresAt.Time}, nil
+}
+
+// ResolveIdentity verifies the ID token without consulting user-info. It is
+// suitable only for access based on the verified subject (for example,
+// ownership); callers must not infer role, feature, or entity grants from it.
+func (p *UserInfoProvider) ResolveIdentity(ctx context.Context) (access.Facts, error) {
+	claims, _, err := p.verifiedClaims(ctx)
+	if err != nil {
+		return access.Facts{}, err
+	}
+	return access.Facts{Subject: claims.Subject, Tenant: strconv.Itoa(claims.AccountID),
+		Issuer: claims.Issuer, ValidUntil: claims.ExpiresAt.Time}, nil
+}
+
+func (p *UserInfoProvider) verifiedClaims(ctx context.Context) (*userInfoClaims, string, error) {
+	if p == nil || ctx == nil || ctx.Err() != nil {
+		return nil, "", access.ErrDenied
+	}
+	bearer, _ := ctx.Value(tokenKey{}).(string)
+	if bearer == "" {
+		return nil, "", access.ErrDenied
+	}
+	claims := &userInfoClaims{}
+	_, err := jwt.ParseWithClaims(bearer, claims, p.config.Keyfunc, jwt.WithValidMethods(p.config.Algorithms), jwt.WithIssuer(p.config.Issuer), jwt.WithAudience(p.config.Audience), jwt.WithExpirationRequired(), jwt.WithIssuedAt())
+	if err != nil || claims.Subject == "" || claims.UserID <= 0 || claims.AccountID <= 0 || claims.ExpiresAt == nil || !claims.ExpiresAt.After(time.Now()) || claims.ExpiresAt.Time.After(time.Now().Add(time.Hour)) {
+		return nil, "", access.ErrDenied
+	}
+	return claims, bearer, nil
 }
 
 type userInfo struct {
