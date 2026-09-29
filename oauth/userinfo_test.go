@@ -18,7 +18,7 @@ func TestUserInfoProviderVerifiesIdentityAndSeparatesFacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	responseBody := `{"status":"ok","info":{"uid":"alice","userId":7,"accountId":21,"roles":["writer","reader"],"features":["export"]}}`
+	responseBody := `{"status":"ok","info":{"uid":"alice","subject":"alice","userId":7,"accountId":21,"roles":["writer","reader"],"features":["export"],"entityPermissions":[{"type":"advertiser","id":"42","permissions":["ADVERTISER_OWNER"]}]}}`
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
@@ -47,12 +47,17 @@ func TestUserInfoProviderVerifiesIdentityAndSeparatesFacts(t *testing.T) {
 	}
 	valid := sign(nil)
 	facts, err := provider.Resolve(WithBearer(context.Background(), valid))
-	if err != nil || facts.Subject != "alice" || facts.Tenant != "21" || facts.Issuer != "https://identity.example" || !facts.ValidUntil.After(time.Now()) || len(facts.Roles) != 2 || facts.Roles[0] != "reader" || facts.Roles[1] != "writer" || len(facts.Exposures) != 1 || facts.Exposures[0] != "export" || len(facts.Entities) != 0 {
+	if err != nil || facts.Subject != "alice" || facts.Tenant != "21" || facts.Issuer != "https://identity.example" || !facts.ValidUntil.After(time.Now()) || len(facts.Roles) != 2 || facts.Roles[0] != "reader" || facts.Roles[1] != "writer" || len(facts.Exposures) != 1 || facts.Exposures[0] != "export" || len(facts.EntityPermissions) != 1 || facts.EntityGroups["advertiser"][0] != "42" {
 		t.Fatalf("facts=%+v error=%v", facts, err)
 	}
 	if requests != 1 {
 		t.Fatalf("user-info calls=%d", requests)
 	}
+	responseBody = `{"status":"ok","info":{"uid":"different-stored-id","subject":"alice","userId":7,"accountId":21,"roles":["reader"],"features":["export"],"entityPermissions":[]}}`
+	if _, err := provider.Resolve(WithBearer(context.Background(), valid)); err != nil {
+		t.Fatalf("a verified subject must not be confused with the stored UID: %v", err)
+	}
+	responseBody = `{"status":"ok","info":{"uid":"alice","subject":"alice","userId":7,"accountId":21,"roles":["writer","reader"],"features":["export"],"entityPermissions":[]}}`
 	for name, token := range map[string]string{
 		"wrong issuer":      sign(func(c *userInfoClaims) { c.Issuer = "https://other.example" }),
 		"wrong audience":    sign(func(c *userInfoClaims) { c.Audience = []string{"other"} }),
@@ -68,12 +73,18 @@ func TestUserInfoProviderVerifiesIdentityAndSeparatesFacts(t *testing.T) {
 		})
 	}
 	for name, body := range map[string]string{
-		"missing roles":            `{"status":"ok","info":{"userId":7,"accountId":21,"features":[]}}`,
-		"null features":            `{"status":"ok","info":{"userId":7,"accountId":21,"roles":[],"features":null}}`,
-		"different account":        `{"status":"ok","info":{"userId":7,"accountId":22,"roles":[],"features":[]}}`,
-		"duplicate role authority": `{"status":"ok","info":{"userId":7,"accountId":21,"roles":[],"roles":["admin"],"features":[]}}`,
-		"case-folded duplicate":    `{"status":"ok","info":{"userId":7,"accountId":21,"roles":[],"Roles":["admin"],"features":[]}}`,
-		"duplicate grant":          `{"status":"ok","info":{"userId":7,"accountId":21,"roles":["admin","admin"],"features":[]}}`,
+		"missing subject":          `{"status":"ok","info":{"userId":7,"accountId":21,"roles":[],"features":[],"entityPermissions":[]}}`,
+		"wrong subject":            `{"status":"ok","info":{"subject":"other","userId":7,"accountId":21,"roles":[],"features":[],"entityPermissions":[]}}`,
+		"missing roles":            `{"status":"ok","info":{"subject":"alice","userId":7,"accountId":21,"features":[],"entityPermissions":[]}}`,
+		"null features":            `{"status":"ok","info":{"subject":"alice","userId":7,"accountId":21,"roles":[],"features":null,"entityPermissions":[]}}`,
+		"different account":        `{"status":"ok","info":{"subject":"alice","userId":7,"accountId":22,"roles":[],"features":[],"entityPermissions":[]}}`,
+		"duplicate role authority": `{"status":"ok","info":{"subject":"alice","userId":7,"accountId":21,"roles":[],"roles":["admin"],"features":[],"entityPermissions":[]}}`,
+		"case-folded duplicate":    `{"status":"ok","info":{"subject":"alice","userId":7,"accountId":21,"roles":[],"Roles":["admin"],"features":[],"entityPermissions":[]}}`,
+		"duplicate grant":          `{"status":"ok","info":{"subject":"alice","userId":7,"accountId":21,"roles":["admin","admin"],"features":[],"entityPermissions":[]}}`,
+		"missing entity grants":    `{"status":"ok","info":{"subject":"alice","userId":7,"accountId":21,"roles":[],"features":[]}}`,
+		"numeric ACL identity":     `{"status":"ok","info":{"subject":"alice","userId":7,"accountId":21,"roles":[],"features":[],"entityPermissions":[{"type":"advertiser","id":42,"permissions":["ADVERTISER_OWNER"]}]}}`,
+		"duplicate entity key":     `{"status":"ok","info":{"subject":"alice","userId":7,"accountId":21,"roles":[],"features":[],"entityPermissions":[{"type":"advertiser","id":"42","permissions":["OWNER"]},{"type":"advertiser","id":"42","permissions":["EDIT"]}]}}`,
+		"extra ACL row id":         `{"status":"ok","info":{"subject":"alice","userId":7,"accountId":21,"roles":[],"features":[],"entityPermissions":[{"type":"advertiser","id":"42","aclId":99,"permissions":["OWNER"]}]}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			responseBody = body

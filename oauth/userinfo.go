@@ -112,19 +112,26 @@ func (p *UserInfoProvider) Resolve(ctx context.Context) (access.Facts, error) {
 		return access.Facts{}, access.ErrDenied
 	}
 	info, err := decodeUserInfo(body)
-	if err != nil || info.UserID != claims.UserID || info.AccountID != claims.AccountID || info.UID != "" && info.UID != claims.Subject {
+	if err != nil || info.UserID != claims.UserID || info.AccountID != claims.AccountID || info.Subject != claims.Subject {
 		return access.Facts{}, access.ErrDenied
 	}
+	groups := access.EntityGroups{}
+	for _, grant := range info.EntityPermissions {
+		groups[grant.Type] = append(groups[grant.Type], grant.ID)
+	}
 	return access.Facts{Subject: claims.Subject, Tenant: strconv.Itoa(claims.AccountID), Issuer: claims.Issuer,
-		Roles: info.Roles, Exposures: info.Features, ValidUntil: claims.ExpiresAt.Time}, nil
+		Roles: info.Roles, Exposures: info.Features, EntityGroups: groups,
+		EntityPermissions: info.EntityPermissions, ValidUntil: claims.ExpiresAt.Time}, nil
 }
 
 type userInfo struct {
-	UID       string
-	UserID    int
-	AccountID int
-	Roles     []string
-	Features  []string
+	UID               string
+	Subject           string
+	UserID            int
+	AccountID         int
+	Roles             []string
+	Features          []string
+	EntityPermissions []access.EntityPermission
 }
 
 func decodeUserInfo(body []byte) (userInfo, error) {
@@ -148,7 +155,7 @@ func decodeUserInfo(body []byte) (userInfo, error) {
 	for _, field := range []struct {
 		name string
 		into any
-	}{{"userId", &info.UserID}, {"accountId", &info.AccountID}, {"roles", &info.Roles}, {"features", &info.Features}} {
+	}{{"userId", &info.UserID}, {"accountId", &info.AccountID}, {"subject", &info.Subject}, {"roles", &info.Roles}, {"features", &info.Features}} {
 		value, found := objectField(object, field.name)
 		if !found || bytes.Equal(value, []byte("null")) || json.Unmarshal(value, field.into) != nil {
 			return userInfo{}, access.ErrDenied
@@ -157,7 +164,42 @@ func decodeUserInfo(body []byte) (userInfo, error) {
 	if rawUID, found := objectField(object, "uid"); found && json.Unmarshal(rawUID, &info.UID) != nil {
 		return userInfo{}, access.ErrDenied
 	}
-	if info.UserID <= 0 || info.AccountID <= 0 || info.Roles == nil || info.Features == nil {
+	if info.UserID <= 0 || info.AccountID <= 0 || info.Subject == "" || info.Roles == nil || info.Features == nil {
+		return userInfo{}, access.ErrDenied
+	}
+	grantsRaw, found := objectField(object, "entityPermissions")
+	if !found || bytes.Equal(grantsRaw, []byte("null")) {
+		return userInfo{}, access.ErrDenied
+	}
+	var grants []json.RawMessage
+	if json.Unmarshal(grantsRaw, &grants) != nil || grants == nil {
+		return userInfo{}, access.ErrDenied
+	}
+	info.EntityPermissions = make([]access.EntityPermission, 0, len(grants))
+	for _, rawGrant := range grants {
+		fields, parseErr := uniqueObject(rawGrant)
+		if parseErr != nil || len(fields) != 3 {
+			return userInfo{}, access.ErrDenied
+		}
+		grant := access.EntityPermission{}
+		for _, field := range []struct {
+			name string
+			into any
+		}{{"type", &grant.Type}, {"id", &grant.ID}, {"permissions", &grant.Permissions}} {
+			value, exists := fields[field.name]
+			if !exists || bytes.Equal(value, []byte("null")) || json.Unmarshal(value, field.into) != nil {
+				return userInfo{}, access.ErrDenied
+			}
+			if field.name == "id" && (len(value) == 0 || value[0] != '"') {
+				return userInfo{}, access.ErrDenied
+			}
+		}
+		if len(grant.Permissions) == 0 {
+			return userInfo{}, access.ErrDenied
+		}
+		info.EntityPermissions = append(info.EntityPermissions, grant)
+	}
+	if access.ValidateEntityPermissions(info.EntityPermissions) != nil {
 		return userInfo{}, access.ErrDenied
 	}
 	for _, names := range [][]string{info.Roles, info.Features} {
