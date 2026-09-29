@@ -212,3 +212,32 @@ func TestPolicyActivationRunsAsGeneratedComponents(t *testing.T) {
 		}
 	})
 }
+
+func TestMissingPolicyRevisionIsNotAnAbsentPolicy(t *testing.T) {
+	ctx := context.Background()
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "policies.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	migration, _ := migrate.New("sqlite")
+	if err = migration.Up(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	store := &Store{DB: db}
+	defer store.Close(ctx)
+	resource := acl.Resource{Kind: "component", ID: "protected", Version: "1", Tenant: "one"}
+	if _, err = store.Provision(ctx, acl.Document{Resource: resource, Policies: map[string]acl.Policy{"describe": {Mode: "public"}}}, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.ExecContext(ctx, "DELETE FROM resource_policy_revisions"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.Get(ctx, resource); err == nil || errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("broken head treated as absent: %v", err)
+	}
+	resource.ID = "absent"
+	if _, err = store.Get(ctx, resource); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("absent head did not return no rows: %v", err)
+	}
+}
