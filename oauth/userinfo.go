@@ -29,6 +29,10 @@ type UserInfoConfig struct {
 	Keyfunc    jwt.Keyfunc
 	URL        string
 	Client     *http.Client
+	// FactLease caps the lifetime of authority facts returned by the
+	// account-bound wrapper. Hosts set it to their identity service's allowed
+	// freshness window; the ID token expiry remains an upper bound.
+	FactLease time.Duration
 }
 
 type userInfoClaims struct {
@@ -86,22 +90,25 @@ func (p *UserInfoProvider) Resolve(ctx context.Context) (access.Facts, error) {
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, p.config.URL, nil)
 	if err != nil {
-		return access.Facts{}, access.ErrDenied
+		return access.Facts{}, access.ErrUnavailable
 	}
 	request.Header.Set("Authorization", "Bearer "+bearer)
 	request.Header.Set("Accept", "application/json")
 	response, err := p.client.Do(request)
 	if err != nil {
-		return access.Facts{}, access.ErrDenied
+		return access.Facts{}, access.ErrUnavailable
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
+		if response.StatusCode >= 500 || response.StatusCode >= 300 && response.StatusCode < 400 {
+			return access.Facts{}, access.ErrUnavailable
+		}
 		return access.Facts{}, access.ErrDenied
 	}
 	const maxUserInfoBytes = 64 << 10
 	body, err := io.ReadAll(io.LimitReader(response.Body, maxUserInfoBytes+1))
 	if err != nil || len(body) > maxUserInfoBytes {
-		return access.Facts{}, access.ErrDenied
+		return access.Facts{}, access.ErrUnavailable
 	}
 	info, err := decodeUserInfo(body)
 	if err != nil || info.UserID != claims.UserID || info.AccountID != claims.AccountID || info.Subject != claims.Subject {

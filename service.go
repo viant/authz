@@ -2,11 +2,15 @@ package authz
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 )
 
 var ErrConflict = errors.New("policy revision conflict")
+var ErrUnavailable = errors.New("authorization service unavailable")
+var ErrIdentityDenied = fmt.Errorf("%w: verified identity rejected", ErrDenied)
 
 type Document struct {
 	Resource Resource          `json:"resource"`
@@ -88,32 +92,118 @@ func (s *Service) Authorize(ctx context.Context, request Request) (Decision, err
 // principal roles/exposures without resolving a second, potentially different
 // identity snapshot. Facts are never accepted from the request payload.
 func (s *Service) AuthorizeWithFacts(ctx context.Context, request Request) (Decision, Facts, error) {
+	decision, facts, _, err := s.AuthorizeWithRevision(ctx, request)
+	return decision, facts, err
+}
+
+// AuthorizeWithRevision returns the exact immutable policy revision used for
+// this decision so gate leases and UI snapshots can bind to policy changes.
+func (s *Service) AuthorizeWithRevision(ctx context.Context, request Request) (Decision, Facts, int64, error) {
 	if s.Store == nil {
-		return Decision{}, Facts{}, ErrDenied
+		return Decision{}, Facts{}, 0, ErrDenied
 	}
 	doc, err := s.Store.Get(ctx, request.Resource)
 	if err != nil || doc.Resource != request.Resource || doc.Revision < 1 {
-		return Decision{}, Facts{}, ErrDenied
+		return Decision{}, Facts{}, 0, ErrDenied
 	}
 	p, ok := doc.Policies[request.Action]
 	if !ok {
-		return Decision{}, Facts{}, ErrDenied
+		return Decision{}, Facts{}, 0, ErrDenied
 	}
 	var facts Facts
 	if p.Mode != "public" || request.Resource.Tenant != "*" {
 		if s.Provider == nil {
-			return Decision{}, Facts{}, ErrDenied
+			return Decision{}, Facts{}, 0, ErrDenied
 		}
 		facts, err = s.Provider.Resolve(ctx)
 		if err != nil {
-			return Decision{}, Facts{}, ErrDenied
+			return Decision{}, Facts{}, 0, ErrDenied
 		}
 	}
 	decision, err := s.evaluate(ctx, request, doc, facts)
 	if err != nil {
-		return Decision{}, Facts{}, err
+		return Decision{}, Facts{}, 0, err
 	}
-	return decision, facts, nil
+	return decision, facts, doc.Revision, nil
+}
+
+// AuthorizeWithStatus retains denial versus infrastructure failure for hosts
+// that must distinguish a missing/denied policy from an unavailable authority.
+// The legacy Authorize methods keep their existing denial-shaped behavior.
+func (s *Service) AuthorizeWithStatus(ctx context.Context, request Request) (Decision, Facts, int64, error) {
+	decision, facts, doc, err := s.authorizeDocumentWithStatus(ctx, request)
+	return decision, facts, doc.Revision, err
+}
+
+// GetWithStatus checks unbounded viewAccess against the exact document it
+// returns, while preserving an authority outage separately from a denial.
+func (s *Service) GetWithStatus(ctx context.Context, resource Resource) (Document, error) {
+	decision, _, doc, err := s.authorizeDocumentWithStatus(ctx, Request{Resource: resource, Action: "viewAccess"})
+	if err != nil {
+		return Document{}, err
+	}
+	if decision.Bounded {
+		return Document{}, ErrDenied
+	}
+	return doc, nil
+}
+
+func (s *Service) authorizeDocumentWithStatus(ctx context.Context, request Request) (Decision, Facts, Document, error) {
+	if s == nil || s.Store == nil || ctx == nil || ctx.Err() != nil {
+		return Decision{}, Facts{}, Document{}, ErrUnavailable
+	}
+	doc, err := s.Store.Get(ctx, request.Resource)
+	if errors.Is(err, ErrDenied) || errors.Is(err, sql.ErrNoRows) {
+		return Decision{}, Facts{}, Document{}, ErrDenied
+	}
+	if err != nil {
+		return Decision{}, Facts{}, Document{}, ErrUnavailable
+	}
+	if doc.Resource != request.Resource || doc.Revision < 1 {
+		return Decision{}, Facts{}, Document{}, ErrDenied
+	}
+	policy, exists := doc.Policies[request.Action]
+	if !exists {
+		return Decision{}, Facts{}, doc, ErrDenied
+	}
+	var facts Facts
+	if policy.Mode != "public" || request.Resource.Tenant != "*" {
+		if s.Provider == nil {
+			return Decision{}, Facts{}, Document{}, ErrUnavailable
+		}
+		facts, err = s.Provider.Resolve(ctx)
+		if err != nil {
+			if errors.Is(err, ErrDenied) {
+				return Decision{}, Facts{}, doc, ErrIdentityDenied
+			}
+			return Decision{}, Facts{}, Document{}, ErrUnavailable
+		}
+		if !facts.ValidUntil.After(time.Now()) {
+			return Decision{}, Facts{}, doc, ErrIdentityDenied
+		}
+	}
+	local, err := Evaluate(request, doc.Policies, facts, time.Now())
+	if err != nil {
+		return Decision{}, Facts{}, doc, ErrDenied
+	}
+	if s.Decisions == nil || policy.Mode == "public" {
+		return local, facts, doc, nil
+	}
+	remote, err := s.Decisions.Evaluate(ctx, request, doc, facts)
+	if errors.Is(err, ErrDenied) {
+		return Decision{}, Facts{}, doc, ErrDenied
+	}
+	if err != nil || ctx.Err() != nil {
+		return Decision{}, Facts{}, Document{}, ErrUnavailable
+	}
+	if !facts.ValidUntil.After(time.Now()) {
+		return Decision{}, Facts{}, doc, ErrDenied
+	}
+	decision, err := Intersect(local, remote)
+	if err != nil {
+		return Decision{}, Facts{}, doc, ErrDenied
+	}
+	return decision, facts, doc, nil
 }
 
 func (s *Service) Get(ctx context.Context, resource Resource) (Document, error) {
@@ -149,7 +239,7 @@ func ValidatePolicy(action string, p Policy) error {
 	}
 	switch p.Mode {
 	case "public":
-		if p.Rule != nil || p.EntityType != "" {
+		if p.Rule != nil || p.EntityType != "" || len(p.RequiredScopes) != 0 {
 			return ErrDenied
 		}
 		switch action {
@@ -157,7 +247,7 @@ func ValidatePolicy(action string, p Policy) error {
 			return nil
 		}
 	case "protected":
-		if p.Rule != nil && valid(*p.Rule, 0) {
+		if p.Rule != nil && valid(*p.Rule, 0) && validScopeNames(p.RequiredScopes) {
 			return nil
 		}
 	}

@@ -4,6 +4,8 @@ package oauth
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	access "github.com/viant/authz"
+	"github.com/viant/authz/gating"
 )
 
 // Config separates the authorization issuer/audience from authoring or model
@@ -26,9 +29,12 @@ type Config struct {
 type Claims struct {
 	EntityPermissions []access.EntityPermission `json:"entityPermissions,omitempty"`
 	jwt.RegisteredClaims
-	Tenant    string   `json:"tenant"`
-	Roles     []string `json:"roles"`
-	Exposures []string `json:"exposures"`
+	AccountID        string   `json:"accountId,omitempty"`
+	MembershipGroups []string `json:"membershipGroups,omitempty"`
+	Tenant           string   `json:"tenant"`
+	Roles            []string `json:"roles"`
+	Exposures        []string `json:"exposures"`
+	Scope            string   `json:"scope,omitempty"`
 	// EntityGroups is the canonical typed allowedEntities claim.
 	EntityGroups access.EntityGroups `json:"-"`
 	// AllowedEntities accepts legacy flat Go callers. Tokens are serialized in
@@ -39,10 +45,13 @@ type Claims struct {
 type wireClaims struct {
 	EntityPermissions []access.EntityPermission `json:"entityPermissions,omitempty"`
 	jwt.RegisteredClaims
-	Tenant          string          `json:"tenant"`
-	Roles           []string        `json:"roles,omitempty"`
-	Exposures       []string        `json:"exposures,omitempty"`
-	AllowedEntities json.RawMessage `json:"allowedEntities,omitempty"`
+	AccountID        string          `json:"accountId,omitempty"`
+	MembershipGroups []string        `json:"membershipGroups,omitempty"`
+	Tenant           string          `json:"tenant"`
+	Roles            []string        `json:"roles,omitempty"`
+	Exposures        []string        `json:"exposures,omitempty"`
+	Scope            string          `json:"scope,omitempty"`
+	AllowedEntities  json.RawMessage `json:"allowedEntities,omitempty"`
 }
 
 func (c Claims) MarshalJSON() ([]byte, error) {
@@ -63,7 +72,7 @@ func (c Claims) MarshalJSON() ([]byte, error) {
 			return nil, err
 		}
 	}
-	return json.Marshal(wireClaims{RegisteredClaims: c.RegisteredClaims, Tenant: c.Tenant, Roles: c.Roles, Exposures: c.Exposures, AllowedEntities: raw, EntityPermissions: c.EntityPermissions})
+	return json.Marshal(wireClaims{RegisteredClaims: c.RegisteredClaims, AccountID: c.AccountID, MembershipGroups: c.MembershipGroups, Tenant: c.Tenant, Roles: c.Roles, Exposures: c.Exposures, Scope: c.Scope, AllowedEntities: raw, EntityPermissions: c.EntityPermissions})
 }
 
 // Preserve malformed legacy values on the wire so verification can deny them
@@ -84,7 +93,8 @@ func (c *Claims) UnmarshalJSON(raw []byte) error {
 	if err != nil || opening != json.Delim('{') {
 		return access.ErrDenied
 	}
-	seenAuthority := false
+	seenAuthority, seenScope := false, false
+	seenAccount, seenGroups := false, false
 	for claimDecoder.More() {
 		keyToken, err := claimDecoder.Token()
 		if err != nil {
@@ -99,6 +109,24 @@ func (c *Claims) UnmarshalJSON(raw []byte) error {
 				return access.ErrDenied
 			}
 			seenAuthority = true
+		}
+		if strings.EqualFold(key, "scope") {
+			if seenScope || key != "scope" {
+				return access.ErrDenied
+			}
+			seenScope = true
+		}
+		if strings.EqualFold(key, "accountId") {
+			if seenAccount || key != "accountId" {
+				return access.ErrDenied
+			}
+			seenAccount = true
+		}
+		if strings.EqualFold(key, "membershipGroups") {
+			if seenGroups || key != "membershipGroups" {
+				return access.ErrDenied
+			}
+			seenGroups = true
 		}
 		var value json.RawMessage
 		if err := claimDecoder.Decode(&value); err != nil {
@@ -116,7 +144,7 @@ func (c *Claims) UnmarshalJSON(raw []byte) error {
 	if err := json.Unmarshal(raw, &wire); err != nil {
 		return err
 	}
-	*c = Claims{RegisteredClaims: wire.RegisteredClaims, Tenant: wire.Tenant, Roles: wire.Roles, Exposures: wire.Exposures, EntityPermissions: wire.EntityPermissions}
+	*c = Claims{RegisteredClaims: wire.RegisteredClaims, AccountID: wire.AccountID, MembershipGroups: wire.MembershipGroups, Tenant: wire.Tenant, Roles: wire.Roles, Exposures: wire.Exposures, Scope: wire.Scope, EntityPermissions: wire.EntityPermissions}
 	if len(wire.AllowedEntities) == 0 {
 		return nil
 	}
@@ -210,16 +238,15 @@ func New(config Config) (*Provider, error) {
 }
 
 var _ access.Provider = (*Provider)(nil)
+var _ gating.PrincipalResolver = (*Provider)(nil)
 
 func (p *Provider) Resolve(ctx context.Context) (access.Facts, error) {
 	if err := ctx.Err(); err != nil {
 		return access.Facts{}, err
 	}
-	bearer, _ := ctx.Value(tokenKey{}).(string)
-	claims := &Claims{}
-	_, err := jwt.ParseWithClaims(bearer, claims, p.config.Keyfunc, jwt.WithValidMethods(p.config.Algorithms), jwt.WithIssuer(p.config.Issuer), jwt.WithAudience(p.config.Audience), jwt.WithExpirationRequired(), jwt.WithIssuedAt())
-	if err != nil || claims.Subject == "" || claims.Tenant == "" || claims.Tenant == "*" || claims.ExpiresAt == nil || !claims.ExpiresAt.After(time.Now()) {
-		return access.Facts{}, access.ErrDenied
+	claims, _, err := p.verifiedClaims(ctx)
+	if err != nil {
+		return access.Facts{}, err
 	}
 	flat, err := access.NormalizeEntityGroups(claims.EntityGroups)
 	if err != nil {
@@ -235,5 +262,42 @@ func (p *Provider) Resolve(ctx context.Context) (access.Facts, error) {
 	if err := access.ValidateEntityPermissions(claims.EntityPermissions); err != nil {
 		return access.Facts{}, access.ErrDenied
 	}
-	return access.Facts{EntityPermissions: claims.EntityPermissions, Subject: claims.Subject, Tenant: claims.Tenant, Issuer: claims.Issuer, Roles: claims.Roles, Exposures: claims.Exposures, EntityGroups: claims.EntityGroups, Entities: flat, ValidUntil: claims.ExpiresAt.Time}, nil
+	grantedScopes, err := access.ParseGrantedScopes(claims.Scope)
+	if err != nil {
+		return access.Facts{}, access.ErrDenied
+	}
+	return access.Facts{EntityPermissions: claims.EntityPermissions, Subject: claims.Subject, Tenant: claims.Tenant, Issuer: claims.Issuer, Roles: claims.Roles, Exposures: claims.Exposures, GrantedScopes: grantedScopes, EntityGroups: claims.EntityGroups, Entities: flat, ValidUntil: claims.ExpiresAt.Time}, nil
+}
+
+func (p *Provider) verifiedClaims(ctx context.Context) (*Claims, string, error) {
+	if p == nil || ctx == nil || ctx.Err() != nil {
+		return nil, "", access.ErrDenied
+	}
+	bearer, _ := ctx.Value(tokenKey{}).(string)
+	claims := &Claims{}
+	_, err := jwt.ParseWithClaims(bearer, claims, p.config.Keyfunc, jwt.WithValidMethods(p.config.Algorithms), jwt.WithIssuer(p.config.Issuer), jwt.WithAudience(p.config.Audience), jwt.WithExpirationRequired(), jwt.WithIssuedAt())
+	if err != nil || claims.Subject == "" || claims.Tenant == "" || claims.Tenant == "*" || claims.ExpiresAt == nil || !claims.ExpiresAt.After(time.Now()) {
+		return nil, "", access.ErrDenied
+	}
+	return claims, bearer, nil
+}
+
+// ResolvePrincipal accepts account context only when the trusted issuer signed
+// an explicit accountId. Tenant ownership and account membership stay distinct.
+func (p *Provider) ResolvePrincipal(ctx context.Context) (gating.Principal, error) {
+	facts, err := p.Resolve(ctx)
+	if err != nil {
+		return gating.Principal{}, err
+	}
+	claims, bearer, err := p.verifiedClaims(ctx)
+	if err != nil || claims.AccountID == "" || strings.TrimSpace(claims.AccountID) != claims.AccountID || claims.AccountID == "*" {
+		return gating.Principal{}, access.ErrDenied
+	}
+	for _, group := range claims.MembershipGroups {
+		if group == "" || strings.TrimSpace(group) != group {
+			return gating.Principal{}, access.ErrDenied
+		}
+	}
+	digest := sha256.Sum256([]byte(bearer))
+	return gating.Principal{Facts: facts, AccountID: claims.AccountID, MembershipGroups: append([]string(nil), claims.MembershipGroups...), IdentityRevision: hex.EncodeToString(digest[:])}, nil
 }

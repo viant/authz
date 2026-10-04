@@ -1,3 +1,4 @@
-/datly/bin/
-/datly/authz
-/datly/.data/
+/component/bin/
+/component/authz
+/component/.data/
+/.idea/

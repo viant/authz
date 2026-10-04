@@ -59,6 +59,10 @@ func TestAuthorizeWithFactsReturnsDecisionSnapshot(t *testing.T) {
 	if err != nil || !decision.Bounded || len(decision.Entities) != 2 || used.Subject != "alice" || len(used.Roles) != 1 || used.Roles[0] != "analyst" {
 		t.Fatalf("decision and verified facts diverged: %+v %+v %v", decision, used, err)
 	}
+	_, _, revision, err := service.AuthorizeWithRevision(context.Background(), Request{Resource: resource, Action: "execute"})
+	if err != nil || revision != 1 {
+		t.Fatalf("policy revision = %d, %v", revision, err)
+	}
 	service.Provider = testProvider{Facts{Subject: "bob", Tenant: "one", Issuer: "issuer", Roles: []string{"guest"}, ValidUntil: time.Now().Add(time.Hour)}}
 	decision, used, err = service.AuthorizeWithFacts(context.Background(), Request{Resource: resource, Action: "execute"})
 	if err == nil || decision.Bounded || used.Subject != "" {

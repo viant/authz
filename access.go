@@ -31,6 +31,8 @@ type Facts struct {
 	Issuer            string             `json:"issuer"`
 	Roles             []string           `json:"roles"`
 	Exposures         []string           `json:"exposures"`
+	// GrantedScopes are OAuth scopes from a verified credential, not entity bounds.
+	GrantedScopes []string `json:"grantedScopes,omitempty"`
 	// EntityGroups is the canonical typed authorization fact.
 	EntityGroups EntityGroups `json:"allowedEntities,omitempty"`
 	// Entities is a compatibility view for existing flat fact providers.
@@ -54,6 +56,8 @@ type Rule struct {
 type Policy struct {
 	Mode string `json:"mode"` // public or protected
 	Rule *Rule  `json:"rule,omitempty"`
+	// RequiredScopes are mandatory for a protected action, outside Rule's OR branches.
+	RequiredScopes []string `json:"requiredScopes,omitempty"`
 	// EntityType requires scoped authorization outside the rule's OR branches.
 	EntityType string `json:"entityType,omitempty"`
 }
@@ -92,7 +96,7 @@ func Evaluate(req Request, policies map[string]Policy, facts Facts, now time.Tim
 		default:
 			return deny()
 		}
-		if p.Rule != nil || p.EntityType != "" {
+		if p.Rule != nil || p.EntityType != "" || len(p.RequiredScopes) != 0 {
 			return deny()
 		}
 	case "protected":
@@ -101,7 +105,7 @@ func Evaluate(req Request, policies map[string]Policy, facts Facts, now time.Tim
 			return deny()
 		}
 		facts.Entities = flat
-		if facts.Subject == "" || facts.Tenant == "" || facts.Issuer == "" || !facts.ValidUntil.After(now) || p.Rule == nil || !valid(*p.Rule, 0) || !matches(*p.Rule, facts) {
+		if facts.Subject == "" || facts.Tenant == "" || facts.Issuer == "" || !facts.ValidUntil.After(now) || p.Rule == nil || !valid(*p.Rule, 0) || !matches(*p.Rule, facts) || !hasGrantedScopes(facts.GrantedScopes, p.RequiredScopes) {
 			return deny()
 		}
 	default:

@@ -1,4 +1,4 @@
-Viant, inc. Authz (Generic Go authorization framework for resources, principals, roles, feature exposures and allowed entities.)
+Viant, inc. Authz (Generic Go authorization framework for resources, principals, roles, feature exposures and allowed entities, with Authz Components for HTTP/MCP and persistence.)
 Copyright 2012-2026 Viant
 
 This product includes software developed at

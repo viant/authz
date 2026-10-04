@@ -53,3 +53,43 @@ func TestMalformedOrAndPublicManagementDeny(t *testing.T) {
 		}
 	}
 }
+
+func TestRequiredOAuthScopesStayOutsideRuleAndEntitySelection(t *testing.T) {
+	now := time.Now()
+	facts := Facts{Subject: "alice", Tenant: "one", Issuer: "issuer", Roles: []string{"reader"}, GrantedScopes: []string{"plan:read", "reports:read"}, Entities: []Entity{{Type: "project", ID: "101"}}, ValidUntil: now.Add(time.Minute)}
+	policy := Policy{Mode: "protected", RequiredScopes: []string{"plan:read"}, EntityType: "project", Rule: &Rule{Kind: "any", Rules: []Rule{{Kind: "subject", Value: "alice"}, {Kind: "role", Value: "admin"}}}}
+	req := Request{Resource: Resource{Kind: "component", ID: "plan", Tenant: "one"}, Action: "execute"}
+	if decision, err := Evaluate(req, map[string]Policy{"execute": policy}, facts, now); err != nil || !decision.Bounded || len(decision.Entities) != 1 {
+		t.Fatalf("scoped grant: %+v %v", decision, err)
+	}
+	policy.RequiredScopes = []string{"plan:read", "reports:read"}
+	if _, err := Evaluate(req, map[string]Policy{"execute": policy}, facts, now); err != nil {
+		t.Fatalf("all granted scopes rejected: %v", err)
+	}
+	policy.RequiredScopes = []string{"plan:read", "reports:write"}
+	if _, err := Evaluate(req, map[string]Policy{"execute": policy}, facts, now); err == nil {
+		t.Fatal("one matching scope satisfied a two-scope policy")
+	}
+	policy.RequiredScopes = []string{"plan:read"}
+	for _, missing := range [][]string{nil, {"reports:read"}, {"plan:read", "plan:read"}, {" plan:read"}} {
+		facts.GrantedScopes = missing
+		if _, err := Evaluate(req, map[string]Policy{"execute": policy}, facts, now); err == nil {
+			t.Fatalf("scope requirement bypassed by rule: %q", missing)
+		}
+	}
+	facts.GrantedScopes = []string{"plan:read"}
+	selection := []Entity{{Type: "project", ID: "102"}}
+	req.Selection = &selection
+	if _, err := Evaluate(req, map[string]Policy{"execute": policy}, facts, now); err == nil {
+		t.Fatal("scope bypassed entity selection")
+	}
+	for _, bad := range [][]string{{""}, {"plan:read", "plan:read"}, {"plan:read extra"}} {
+		policy.RequiredScopes = bad
+		if err := ValidatePolicy("execute", policy); err == nil {
+			t.Fatalf("malformed required scopes accepted: %q", bad)
+		}
+	}
+	if err := ValidatePolicy("execute", Policy{Mode: "public", RequiredScopes: []string{"plan:read"}}); err == nil {
+		t.Fatal("public policy accepted required OAuth scopes")
+	}
+}
