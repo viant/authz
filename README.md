@@ -253,3 +253,51 @@ does not traverse the nested component module, so run its checks separately.
 Apache License 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 This product includes software developed at Viant (http://viantinc.com/).
+
+## Resource version selection
+
+`Selector` resolves one resource version from a trusted `SelectionStore` and
+then authorizes that exact version through the existing policy service. It is
+generic: an MCP server, component, skill or other resource can be selected.
+The host owns endpoint routing, publication, runtime loading and session pinning.
+Mapping revisions, resource versions and policy revisions remain separate.
+
+```go
+family := authz.ResourceFamily{Kind: "mcp", ID: "studio", Tenant: "team"}
+mappings, err := authz.NewStaticSelectionStore([]authz.SelectionDocument{{
+    Resource: family, Revision: 1, DefaultVersion: "v1",
+    Overrides: []authz.VersionOverride{{
+        Version: "v2", RequiredExposures: []string{"studio-preview"}, Priority: 10,
+    }},
+}})
+if err != nil { return err }
+selector := authz.Selector{Mappings: mappings, Service: policyService}
+selected, err := selector.Authorize(ctx, authz.SelectionRequest{
+    Resource: family, Action: "execute",
+})
+if err != nil { return err }
+// Route only to selected.Resource.Version and enforce selected.Decision bounds.
+```
+
+Each mapping has exactly one default version. All listed exposures on an override
+must match verified provider facts; the highest matching priority wins. Override
+priorities are unique, so multiple matching features are deterministic. Without
+matching features the default is selected. An alternate's missing or denied
+policy never causes fallback to a less restrictive default. Missing mappings deny;
+provider/store outages fail closed. A mapping with overrides requires verified,
+unexpired identity even when the default is ultimately selected. A mapping with
+no overrides and a public `*` tenant policy supports anonymous access.
+
+The selector resolves identity once per operation, preventing different identity
+snapshots for selection and policy evaluation. `Authorize` returns the selected
+resource, mapping revision, policy revision and entity decision. Hosts should use
+it consistently for discovery and execution; differing client schemas across
+versions may require a host-owned session pin or separate tool names.
+
+`selector.FindPolicy(ctx, family)` finds the selected version's current policy
+and checks unbounded `viewAccess` against that same document and identity before
+returning it. It does not treat execution permission as policy-read permission.
+Static mappings are cloned and immutable; reload configuration by constructing
+a new store. Dynamic persistence can implement `SelectionStore` with atomic,
+versioned mapping snapshots; this package does not add an endpoint table or SQL
+migration for the host.
