@@ -24,18 +24,11 @@ func New(driver string) (*Migration, error) {
 	return nil, fmt.Errorf("unsupported policy database driver %q", driver)
 }
 
-// Up creates missing tables without changing or deleting existing policy data.
+// Up creates the canonical Authz tables on a fresh schema. Its CREATE IF NOT
+// EXISTS statements do not transform or import any previous table layout.
 func (m *Migration) Up(ctx context.Context, db *sql.DB) error {
-	query := "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'resource_policy_heads'"
-	if m.driver == "mysql" {
-		query = "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'resource_policy_heads'"
-	}
-	var legacyTables int
-	if err := db.QueryRowContext(ctx, query).Scan(&legacyTables); err != nil {
-		return fmt.Errorf("check legacy policy schema: %w", err)
-	}
-	if legacyTables != 0 {
-		return fmt.Errorf("policy schema migration required: stop writers, back up the database, and run ALTER TABLE resource_policy_heads RENAME TO resource_policies before initialization")
+	if m == nil || db == nil {
+		return fmt.Errorf("authorization schema database is required")
 	}
 	raw, err := files.ReadFile(m.driver + ".sql")
 	if err != nil {
@@ -46,7 +39,7 @@ func (m *Migration) Up(ctx context.Context, db *sql.DB) error {
 			continue
 		}
 		if _, err = db.ExecContext(ctx, statement); err != nil {
-			return fmt.Errorf("initialize policy schema: %w", err)
+			return fmt.Errorf("create authorization schema: %w", err)
 		}
 	}
 	return nil

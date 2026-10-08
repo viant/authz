@@ -86,6 +86,25 @@ func TestMySQLPolicyStorage(t *testing.T) {
 			t.Fatal("resource isolation failed", err)
 		}
 	}
+	exact := authz.Resource{Kind: "Report", ID: "window://example/Sales-广告", Version: "V1", Tenant: "Tenant"}
+	byteDocument := authz.Document{Resource: exact, Policies: map[string]authz.Policy{"describe": {Mode: "public"}}}
+	if _, err = store.Create(context.Background(), byteDocument, "byte-exact"); err != nil {
+		t.Fatal("create byte-exact UTF-8 key", err)
+	}
+	loaded, err = store.Get(context.Background(), exact)
+	if err != nil || loaded.Resource != exact {
+		t.Fatalf("native policy store did not scan exact VARBINARY identity: %+v err=%v", loaded.Resource, err)
+	}
+	invalid := byteDocument
+	invalid.Resource.ID += " "
+	if _, err = store.Create(context.Background(), invalid, "invalid-key"); !errors.Is(err, authz.ErrDenied) {
+		t.Fatalf("native writer must reject trailing-space resource identity: %v", err)
+	}
+	wrongCase := exact
+	wrongCase.ID = "window://example/sales-广告"
+	if _, err = store.Get(context.Background(), wrongCase); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("native policy store accepted wrong-case identity: %v", err)
+	}
 	if _, err = db.Exec("CREATE TRIGGER reject_authz_history BEFORE INSERT ON resource_policy_revisions FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='fixture history failure'"); err != nil {
 		t.Fatal(err)
 	}

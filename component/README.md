@@ -117,24 +117,20 @@ database to that connector, preserving persisted documents and history.
 
 ## SQLite and MySQL
 
-`schema.New("sqlite")` and `schema.New("mysql")` initialize
-`resource_policies` and append-only `resource_policy_revisions`. Both schemas
-use the exact tenant/kind/id/version identity and retain created/updated audit
-fields. Datly's writer applies head and history within one transaction; stale
-revision or failed history writes do not advance the head. Resource SQL uses
-portable identifiers and preserves Datly predicate/template string literals.
+`schema.New("sqlite")` and `schema.New("mysql")` initialize a fresh Authz
+schema containing `resource_policies` and append-only
+`resource_policy_revisions`. Consumers that own only policy persistence can
+call `schema.CreatePolicies(ctx, db, driver)` or compose `schema.PolicyDDL` into
+their empty-database bootstrap. Both tables use the exact tenant/kind/id/version
+identity and retain created/updated audit fields. Datly's writer applies head
+and history within one transaction; stale revision or failed history writes do
+not advance the head. Resource SQL uses portable identifiers and preserves
+Datly predicate/template string literals.
 
-The initializer creates missing tables; it does not alter an existing incompatible
-schema. To upgrade an existing database that uses `resource_policy_heads`, stop
-writers and take your normal backup, then run this SQLite/MySQL statement before
-starting the updated application:
-
-```sql
-ALTER TABLE resource_policy_heads RENAME TO resource_policies;
-```
-
-The schema initializer does not migrate existing tables and returns a migration
-required error if the legacy table is present. `Store` implements the generic `authz.Store` and `authz.Creator` interfaces.
+Authz is introduced as a new schema; its initializer creates tables but does
+not convert previous application layouts such as `resource_policy_heads`,
+upgrade audit columns, or infer history. `Store` implements the generic
+`authz.Store` and `authz.Creator` interfaces.
 
 ## Run
 
