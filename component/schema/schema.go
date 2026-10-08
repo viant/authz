@@ -14,6 +14,16 @@ var files embed.FS
 
 type Migration struct{ driver string }
 
+// DDL returns the complete canonical fresh authorization schema.
+func DDL(driver string) (string, error) {
+	m, err := New(driver)
+	if err != nil {
+		return "", err
+	}
+	raw, err := files.ReadFile(m.driver + ".sql")
+	return string(raw), err
+}
+
 func New(driver string) (*Migration, error) {
 	switch driver {
 	case "sqlite", "sqlite3":

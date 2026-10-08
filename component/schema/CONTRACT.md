@@ -23,4 +23,6 @@ association table.
 Fresh-schema tests verify empty SQLite creation, idempotent `CREATE IF NOT
 EXISTS` behavior, full key constraints, exact text matching, and MySQL DDL
 shape. Database-specific bootstrap execution belongs to the application that
-owns the target schema.
+owns the target schema. An opt-in MySQL empty-schema check accepts only a
+database on `127.0.0.1:23309` whose name starts with `authz_schema_test`, via
+`AUTHZ_POLICY_SCHEMA_MYSQL_DSN`.
