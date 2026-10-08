@@ -25,6 +25,9 @@ type Entity struct {
 // Facts must originate from a verified OAuth/OIDC identity and its configured
 // authorization provider. Exposures are feature entitlements, not publications.
 type Facts struct {
+	// AuthorityRevision is an optional opaque fingerprint of verified identity
+	// and account context. It grants no permissions and excludes rolling leases.
+	AuthorityRevision string             `json:"authorityRevision,omitempty"`
 	EntityPermissions []EntityPermission `json:"entityPermissions,omitempty"`
 	Subject           string             `json:"subject"`
 	Tenant            string             `json:"tenant"`

@@ -206,7 +206,7 @@ func (e *Evaluator) evaluate(ctx context.Context, req Request, withACL bool) (De
 			return deny("policyDenied")
 		}
 		result.ProviderRevision += ":policy:" + strconv.FormatInt(policyRevision, 10)
-		if facts.Subject != "" && (facts.Subject != p.Facts.Subject || facts.Issuer != p.Facts.Issuer || facts.Tenant != p.Facts.Tenant || !facts.ValidUntil.After(now) || !reflect.DeepEqual(facts.Roles, p.Facts.Roles) || !reflect.DeepEqual(facts.Exposures, p.Facts.Exposures) || !reflect.DeepEqual(facts.EntityGroups, p.Facts.EntityGroups) || !reflect.DeepEqual(facts.Entities, p.Facts.Entities) || !reflect.DeepEqual(facts.EntityPermissions, p.Facts.EntityPermissions) || !reflect.DeepEqual(facts.GrantedScopes, p.Facts.GrantedScopes)) {
+		if facts.Subject != "" && (facts.AuthorityRevision != p.Facts.AuthorityRevision || facts.Subject != p.Facts.Subject || facts.Issuer != p.Facts.Issuer || facts.Tenant != p.Facts.Tenant || !facts.ValidUntil.After(now) || !reflect.DeepEqual(facts.Roles, p.Facts.Roles) || !reflect.DeepEqual(facts.Exposures, p.Facts.Exposures) || !reflect.DeepEqual(facts.EntityGroups, p.Facts.EntityGroups) || !reflect.DeepEqual(facts.Entities, p.Facts.Entities) || !reflect.DeepEqual(facts.EntityPermissions, p.Facts.EntityPermissions) || !reflect.DeepEqual(facts.GrantedScopes, p.Facts.GrantedScopes)) {
 			return Decision{}, ErrUnavailable
 		}
 		if facts.Subject != "" && facts.ValidUntil.Before(result.ValidUntil) {
@@ -326,6 +326,7 @@ func (e *Evaluator) evaluate(ctx context.Context, req Request, withACL bool) (De
 
 func samePrincipalAuthority(a, b Principal) bool {
 	return a.IdentityRevision == b.IdentityRevision &&
+		a.Facts.AuthorityRevision == b.Facts.AuthorityRevision &&
 		a.AccountID == b.AccountID &&
 		a.Facts.Subject == b.Facts.Subject &&
 		a.Facts.Issuer == b.Facts.Issuer &&

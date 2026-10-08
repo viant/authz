@@ -62,6 +62,7 @@ func (f Facts) MarshalJSON() ([]byte, error) {
 		}
 	}
 	return json.Marshal(struct {
+		AuthorityRevision string             `json:"authorityRevision,omitempty"`
 		EntityPermissions []EntityPermission `json:"entityPermissions,omitempty"`
 		Subject           string             `json:"subject"`
 		Tenant            string             `json:"tenant"`
@@ -71,7 +72,7 @@ func (f Facts) MarshalJSON() ([]byte, error) {
 		GrantedScopes     []string           `json:"grantedScopes,omitempty"`
 		AllowedEntities   EntityGroups       `json:"allowedEntities"`
 		ValidUntil        time.Time          `json:"validUntil"`
-	}{f.EntityPermissions, f.Subject, f.Tenant, f.Issuer, f.Roles, f.Exposures, f.GrantedScopes, groups, f.ValidUntil})
+	}{f.AuthorityRevision, f.EntityPermissions, f.Subject, f.Tenant, f.Issuer, f.Roles, f.Exposures, f.GrantedScopes, groups, f.ValidUntil})
 }
 
 // NormalizeEntityGroups returns the existing flat evaluator view. Malformed

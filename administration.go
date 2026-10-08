@@ -188,7 +188,7 @@ func (a *Administration) replacementActor(ctx context.Context, resource Resource
 }
 
 func sameManagementFacts(a, b Facts) bool {
-	return a.Subject == b.Subject && a.Issuer == b.Issuer && a.Tenant == b.Tenant &&
+	return a.Subject == b.Subject && a.Issuer == b.Issuer && a.Tenant == b.Tenant && a.AuthorityRevision == b.AuthorityRevision &&
 		reflect.DeepEqual(a.Roles, b.Roles) && reflect.DeepEqual(a.Exposures, b.Exposures) &&
 		reflect.DeepEqual(a.EntityGroups, b.EntityGroups) && reflect.DeepEqual(a.Entities, b.Entities) &&
 		reflect.DeepEqual(a.EntityPermissions, b.EntityPermissions) && reflect.DeepEqual(a.GrantedScopes, b.GrantedScopes) &&
