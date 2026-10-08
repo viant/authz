@@ -440,3 +440,9 @@ func contains(values []string, sought string) bool {
 func validProviderDecision(d Decision, r ProviderRequest, now time.Time) bool {
 	return d.SchemaVersion == 1 && d.DecisionID != "" && d.RequestID == r.RequestID && d.Subject == r.Subject && d.Issuer == r.Issuer && d.TenantID == r.TenantID && d.AccountID == r.AccountID && d.ResourceKind == r.ResourceKind && d.ResourceID == r.ResourceID && d.ResourceVersion == r.ResourceVersion && d.Action == r.Action && d.RequirementsRevision == r.RequirementsRevision && d.EntitySelectionHash == r.EntitySelectionHash && d.RequirementKey == r.RequirementKey && d.ProviderRef == r.ProviderRef && d.ProviderRevision != "" && d.ValidUntil.After(now) && (d.Effect == "allow" || d.Effect == "deny")
 }
+
+// ValidProviderDecision verifies every request/identity/resource binding and
+// the live authority lease for an injected provider response.
+func ValidProviderDecision(d Decision, r ProviderRequest, now time.Time) bool {
+	return validProviderDecision(d, r, now)
+}

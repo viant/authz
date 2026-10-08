@@ -9,59 +9,55 @@ import (
 	"github.com/viant/authz/gating"
 )
 
-// StaticAuthorizationConfig assembles trusted file-backed ACL and requirement
-// documents with verified IdP facts. Hosts supply product resource mappings
-// separately; no operation, capability or account rule is built in.
+// IdentityAuthority is implemented by a trusted host binding. Account and
+// policy tenant mappings are explicit; neither is derived by this package.
+type IdentityAuthority interface {
+	authz.Provider
+	gating.PrincipalResolver
+	Account(context.Context, authz.Facts) (string, error)
+	AuthorityRevision(context.Context, authz.Facts, string) (string, time.Time, error)
+}
+
+// StaticAuthorizationConfig assembles trusted policies with injected authorities.
+// Hosts supply account, capability, and policy namespace mappings.
 type StaticAuthorizationConfig struct {
-	EntityEvaluationURL   string // optional trusted selected-entity authority endpoint
-	Identity              AccountUserInfoConfig
-	Policies              []authz.Document
-	Requirements          []gating.Binding
-	EntityPermissions     gating.EntityPermissionProvider
-	CapabilityPermissions []CapabilityPermissionBinding
-	EntityRoles           []EntityRoleBinding
-	Entitlements          map[string]gating.EntitlementProvider
+	Identity IdentityAuthority
+	// AllowsTenant validates policy namespaces using trusted host configuration.
+	AllowsTenant              func(string) bool
+	EntityCapabilityWithLease func(context.Context, authz.Facts, authz.Entity, string) (bool, time.Time, error)
+	Policies                  []authz.Document
+	Requirements              []gating.Binding
+	EntityPermissions         gating.EntityPermissionProvider
+	CapabilityPermissions     []CapabilityPermissionBinding
+	EntityRoles               []EntityRoleBinding
+	Entitlements              map[string]gating.EntitlementProvider
 }
 
 type StaticAuthorization struct {
 	EntityCapabilityWithLease func(context.Context, authz.Facts, authz.Entity, string) (bool, time.Time, error)
-	Identity                  *AccountUserInfoProvider
+	Identity                  IdentityAuthority
 	ACL                       *authz.Service
 	Gates                     *gating.Evaluator
 	Policies                  *authz.StaticStore
 	Requirements              *gating.StaticStore
 	EntityCapability          func(context.Context, authz.Facts, authz.Entity, string) (bool, error)
 	EntityRoleProjection      func(context.Context, authz.Facts, authz.Entity) ([]string, error)
-	EntityEvaluation          *EntityEvaluationClient
 }
 
 func NewStaticAuthorization(config StaticAuthorizationConfig) (*StaticAuthorization, error) {
-	identity, err := NewConfiguredAccountUserInfo(config.Identity)
-	if err != nil {
-		return nil, err
+	identity := config.Identity
+	if identity == nil || config.AllowsTenant == nil {
+		return nil, fmt.Errorf("identity authority and policy tenant validator are required")
 	}
-	allowedTenant := func(tenant string) bool {
-		if tenant == "*" {
-			return true
-		}
-		if config.Identity.TenantForAllAccounts != "" {
-			return tenant == config.Identity.TenantForAllAccounts
-		}
-		for _, mapped := range config.Identity.TenantByAccount {
-			if tenant == mapped {
-				return true
-			}
-		}
-		return false
-	}
+	allowedTenant := config.AllowsTenant
 	for _, document := range config.Policies {
 		if !allowedTenant(document.Resource.Tenant) {
-			return nil, fmt.Errorf("ACL policy tenant %q has no configured IdP mapping", document.Resource.Tenant)
+			return nil, fmt.Errorf("ACL policy tenant %q has no configured authority mapping", document.Resource.Tenant)
 		}
 	}
 	for _, binding := range config.Requirements {
 		if !allowedTenant(binding.Resource.Tenant) {
-			return nil, fmt.Errorf("gate tenant %q has no configured IdP mapping", binding.Resource.Tenant)
+			return nil, fmt.Errorf("gate tenant %q has no configured authority mapping", binding.Resource.Tenant)
 		}
 	}
 	policies, err := authz.NewStaticStore(config.Policies)
@@ -83,17 +79,6 @@ func NewStaticAuthorization(config StaticAuthorizationConfig) (*StaticAuthorizat
 	}
 	acl := &authz.Service{Store: policies, Provider: identity}
 	entities := config.EntityPermissions
-	var evaluation *EntityEvaluationClient
-	if config.EntityEvaluationURL != "" {
-		if entities != nil {
-			return nil, fmt.Errorf("configure either entity evaluation URL or entity provider")
-		}
-		evaluation, err = NewEntityEvaluationClient(EntityEvaluationConfig{URL: config.EntityEvaluationURL, Principals: identity, Client: config.Identity.Client})
-		if err != nil {
-			return nil, err
-		}
-		entities = evaluation
-	}
 	if entities == nil {
 		entities = &FactEntityPermissionProvider{Principals: identity}
 	}
@@ -101,17 +86,11 @@ func NewStaticAuthorization(config StaticAuthorizationConfig) (*StaticAuthorizat
 	if err != nil {
 		return nil, err
 	}
-	if evaluation != nil {
-		entityCapability, err = evaluation.CapabilityResolver(config.CapabilityPermissions)
-		if err != nil {
-			return nil, err
-		}
-	}
-	var entityCapabilityWithLease func(context.Context, authz.Facts, authz.Entity, string) (bool, time.Time, error)
-	if evaluation != nil {
-		entityCapabilityWithLease, err = evaluation.CapabilityResolverWithLease(config.CapabilityPermissions)
-		if err != nil {
-			return nil, err
+	entityCapabilityWithLease := config.EntityCapabilityWithLease
+	if entityCapabilityWithLease != nil {
+		entityCapability = func(ctx context.Context, facts authz.Facts, entity authz.Entity, capability string) (bool, error) {
+			allowed, _, err := entityCapabilityWithLease(ctx, facts, entity, capability)
+			return allowed, err
 		}
 	}
 	entityRoles, err := NewEntityRoleResolver(config.EntityRoles)
@@ -125,5 +104,5 @@ func NewStaticAuthorization(config StaticAuthorizationConfig) (*StaticAuthorizat
 		}
 		entitlements[ref] = provider
 	}
-	return &StaticAuthorization{EntityCapabilityWithLease: entityCapabilityWithLease, EntityEvaluation: evaluation, Identity: identity, ACL: acl, Gates: &gating.Evaluator{ACL: acl, Principals: identity, Requirements: requirements, Entities: entities, Entitlements: entitlements}, Policies: policies, Requirements: requirements, EntityCapability: entityCapability, EntityRoleProjection: entityRoles}, nil
+	return &StaticAuthorization{EntityCapabilityWithLease: entityCapabilityWithLease, Identity: identity, ACL: acl, Gates: &gating.Evaluator{ACL: acl, Principals: identity, Requirements: requirements, Entities: entities, Entitlements: entitlements}, Policies: policies, Requirements: requirements, EntityCapability: entityCapability, EntityRoleProjection: entityRoles}, nil
 }

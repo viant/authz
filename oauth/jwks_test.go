@@ -1,7 +1,6 @@
 package oauth
 
 import (
-	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
@@ -103,58 +102,5 @@ func TestJWKSKeyfuncRejectsUnsafeEndpointRedirectAndDuplicateKeys(t *testing.T) 
 	}
 	if _, err := keyfunc(token); err == nil {
 		t.Fatal("duplicate key ID was accepted")
-	}
-}
-
-func TestAccountUserInfoUsesConfiguredJWKSAndVerifiedProfile(t *testing.T) {
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatal(err)
-	}
-	userinfoCalls := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/jwks":
-			if r.Header.Get("Authorization") != "" {
-				t.Fatal("credential forwarded to JWKS")
-			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"keys": []any{rsaJWK(key, "current")}})
-		case "/userinfo":
-			userinfoCalls++
-			if r.Header.Get("Authorization") == "" {
-				t.Fatal("user-info missing verified bearer")
-			}
-			_, _ = w.Write([]byte(`{"status":"ok","info":{"subject":"alice","userId":7,"accountId":21,"roles":["reader"],"features":["FEATURE"],"entityPermissions":[]}}`))
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer server.Close()
-	config := AccountUserInfoConfig{Issuer: server.URL, Audience: "host", Algorithms: []string{"RS256"}, JWKSURL: server.URL + "/jwks", JWKSRefreshInterval: time.Minute, UserInfoURL: server.URL + "/userinfo", FactLease: time.Minute, TenantByAccount: map[int]string{21: "tenant"}}
-	provider, err := NewConfiguredAccountUserInfo(config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	config.TenantByAccount[21] = "forged"
-	claims := userInfoClaims{RegisteredClaims: jwt.RegisteredClaims{Issuer: server.URL, Audience: []string{"host"}, Subject: "alice", ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour))}, UserID: 7, AccountID: 21}
-	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
-	token.Header["kid"] = "current"
-	raw, err := token.SignedString(key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	principal, err := provider.ResolvePrincipal(WithBearer(context.Background(), raw))
-	if err != nil || principal.AccountID != "21" || principal.Facts.Tenant != "tenant" || principal.Facts.Roles[0] != "reader" || principal.Facts.Exposures[0] != "FEATURE" || userinfoCalls != 1 {
-		t.Fatalf("verified principal=%+v calls=%d err=%v", principal, userinfoCalls, err)
-	}
-	claims.Audience = []string{"other"}
-	bad := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
-	bad.Header["kid"] = "current"
-	raw, err = bad.SignedString(key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := provider.ResolvePrincipal(WithBearer(context.Background(), raw)); err == nil || userinfoCalls != 1 {
-		t.Fatalf("wrong audience reached user-info: calls=%d err=%v", userinfoCalls, err)
 	}
 }

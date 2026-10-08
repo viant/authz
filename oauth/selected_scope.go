@@ -9,27 +9,28 @@ import (
 	"github.com/viant/authz/gating"
 )
 
-// EntityEvaluationScopeProvider explicitly delegates entity bounds to IAM.
+// EntityEvaluationScopeProvider delegates entity bounds to an injected authority.
 // Permission is a trusted host mapping (typically read for scope admission);
 // mandatory action-specific gates continue to be evaluated independently.
 type EntityEvaluationScopeProvider struct {
-	Client     *EntityEvaluationClient
+	Client     gating.EntityPermissionProvider
+	Principals gating.PrincipalResolver
 	Permission func(authz.Request, authz.Document) (string, error)
 }
 
 func (p *EntityEvaluationScopeProvider) ResolveSelectedScope(ctx context.Context, request authz.Request, document authz.Document, facts authz.Facts) (authz.SelectedScopeDecision, error) {
-	if p == nil || p.Client == nil || p.Permission == nil || request.Selection == nil {
+	if p == nil || p.Client == nil || p.Principals == nil || p.Permission == nil || request.Selection == nil {
 		return authz.SelectedScopeDecision{}, authz.ErrDenied
 	}
 	permission, err := p.Permission(request, document)
 	if err != nil || permission == "" {
 		return authz.SelectedScopeDecision{}, authz.ErrDenied
 	}
-	principal, err := p.Client.config.Principals.ResolvePrincipal(ctx)
+	principal, err := p.Principals.ResolvePrincipal(ctx)
 	if err != nil {
 		return authz.SelectedScopeDecision{}, err
 	}
-	if !sameVerifiedAccountFacts(principal.Facts, facts) || !facts.ValidUntil.After(time.Now()) {
+	if principal.AccountID == "" || principal.IdentityRevision == "" || !principal.Facts.ValidUntil.After(time.Now()) || !sameVerifiedAccountFacts(principal.Facts, facts) || !facts.ValidUntil.After(time.Now()) {
 		return authz.SelectedScopeDecision{}, authz.ErrIdentityDenied
 	}
 	selected, hash, err := gating.CanonicalSelection(*request.Selection)
@@ -41,10 +42,26 @@ func (p *EntityEvaluationScopeProvider) ResolveSelectedScope(ctx context.Context
 	if err != nil {
 		return authz.SelectedScopeDecision{}, err
 	}
-	if checked.Effect != "allow" || !checked.ValidUntil.After(time.Now()) {
+	if !gating.ValidProviderDecision(checked, r, time.Now()) || checked.Effect != "allow" {
 		return authz.SelectedScopeDecision{}, authz.ErrDenied
 	}
-	return authz.SelectedScopeDecision{Entities: selected, ValidUntil: checked.ValidUntil}, nil
+	current, err := p.Principals.ResolvePrincipal(ctx)
+	if err != nil {
+		return authz.SelectedScopeDecision{}, err
+	}
+	if !gating.SamePrincipalAuthority(principal, current) || !current.Facts.ValidUntil.After(time.Now()) {
+		return authz.SelectedScopeDecision{}, authz.ErrIdentityDenied
+	}
+	lease := checked.ValidUntil
+	for _, bound := range []time.Time{facts.ValidUntil, current.Facts.ValidUntil} {
+		if bound.Before(lease) {
+			lease = bound
+		}
+	}
+	if !lease.After(time.Now()) {
+		return authz.SelectedScopeDecision{}, authz.ErrDenied
+	}
+	return authz.SelectedScopeDecision{Entities: selected, ValidUntil: lease}, nil
 }
 
 var _ authz.SelectedScopeProvider = (*EntityEvaluationScopeProvider)(nil)

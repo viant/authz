@@ -22,7 +22,7 @@ trusted identity facts and enforces the result before returning protected data.
 - Mandatory OAuth scope checks and typed entity bounds outside `any` branches
 - Exact per-entity permissions without implicit inheritance
 - Immutable policy revisions and atomic replacement with conflict detection
-- Verified JWT and user-info providers with configurable identity leases
+- Verified JWT/JWKS with injected identity and entity authorities
 - Account-bound gates, entitlement checks and an optional durable file registry
 - Datly HTTP/MCP components, SQLite/MySQL persistence and a runnable host
 
@@ -31,7 +31,7 @@ trusted identity facts and enforces the result before returning protected data.
 | Import path | Purpose | Go module |
 | --- | --- | --- |
 | `github.com/viant/authz` | Core types, evaluation, scope intersection, policy services and administration | Core |
-| `github.com/viant/authz/oauth` | Optional verified JWT and user-info providers | Core |
+| `github.com/viant/authz/oauth` | Verified JWT/JWKS and generic host bindings | Core |
 | `github.com/viant/authz/gating` | Mandatory gates, versioned decisions, administration and an optional single-process file registry | Core |
 | `github.com/viant/authz/component` | Authz Components, persistence and host | Separate nested module |
 
@@ -132,9 +132,10 @@ any authorization error as a denied operation. Reading a policy or hiding a UI
 control does not authorize execution. A successful bounded decision grants only
 the returned entities.
 
-The optional OAuth adapters use host-configured issuers, audiences, keys,
-user-info endpoints and tenant mappings. The account adapter is optional; Authz
-has no built-in Viant identity deployment or product-specific account model.
+The optional OAuth adapters verify host-configured issuers, audiences and keys.
+Private identity payloads, account-to-tenant mappings, permission vocabulary and
+business inheritance belong to host-owned providers. Public code has no Viant
+ID-token, user-info or selected-evaluation wire contract.
 
 ## Authorization
 
@@ -157,23 +158,19 @@ strings and full-width integers; they are never rounded through float64. Provide
 must verify the credential and supply subject, tenant, issuer and an expiry lease.
 The library does not trust roles or entity IDs from operation request bodies.
 The signed OAuth fact-token provider reads granted scopes from its verified
-space-delimited `scope` claim. The ID-token user-info provider does not promote
-the response's displayed scopes to access-token authority.
+space-delimited `scope` claim. A user-info binding must not promote displayed
+scopes to credential authority.
 
-For account-bound hosts, `oauth.NewAccountUserInfo` requires an explicit
-verified-account-to-tenant resolver and a positive `FactLease`. The host chooses
-issuer, audience, keys, user-info endpoint and fact freshness; no account or
-product name is built in. Its observed identity revision binds decisions to
-one verified credential and the current user-info authority facts, but does
-not claim to be an IAM revocation revision. The
-identity service's own authority cache and revocation policy remain material
-when choosing the lease.
-`oauth.NewConfiguredAccountUserInfo` accepts the same boundaries as typed
-configuration, including a trusted JWKS URL, refresh interval, user-info URL
-and exactly one explicit tenant mapping: per-account IDs or one shared policy
-namespace for all verified accounts. The shared namespace does not merge
-account roles, exposures or entity permissions. Unknown key IDs cannot force per-request
-JWKS fetches; key rotation becomes visible at the configured refresh lease.
+`oauth.VerifyToken` verifies generic JWT claims supplied by a host; it never
+interprets private identity fields. `oauth.NewIdentity` returns registered
+subject/issuer/expiry only and grants no tenant, role or entity authority.
+`oauth.NewStaticAuthorization` requires an injected `IdentityAuthority` and an
+explicit policy-tenant validator. Entity checks use an injected
+`gating.EntityPermissionProvider`; capability projections can retain source
+leases through `NewLeasedCapabilityPermissionResolver`. Numeric user/account
+claims and provider HTTP DTOs are intentionally outside this module.
+Unknown JWKS key IDs cannot force per-request fetches; rotation becomes visible
+at the configured refresh lease.
 
 ## Permissions per entity
 

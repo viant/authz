@@ -273,9 +273,8 @@ func (p *Provider) verifiedClaims(ctx context.Context) (*Claims, string, error) 
 	if p == nil || ctx == nil || ctx.Err() != nil {
 		return nil, "", access.ErrDenied
 	}
-	bearer, _ := ctx.Value(tokenKey{}).(string)
 	claims := &Claims{}
-	_, err := jwt.ParseWithClaims(bearer, claims, p.config.Keyfunc, jwt.WithValidMethods(p.config.Algorithms), jwt.WithIssuer(p.config.Issuer), jwt.WithAudience(p.config.Audience), jwt.WithExpirationRequired(), jwt.WithIssuedAt())
+	bearer, err := VerifyToken(ctx, p.config, claims)
 	if err != nil || claims.Subject == "" || claims.Tenant == "" || claims.Tenant == "*" || claims.ExpiresAt == nil || !claims.ExpiresAt.After(time.Now()) {
 		return nil, "", access.ErrDenied
 	}

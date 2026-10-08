@@ -28,7 +28,8 @@ entity-rule predicates therefore still need original authority facts; a returned
 selected scope cannot satisfy an arbitrary entity predicate in the ACL. This
 avoids converting a successful selected-ID check into a general authority list.
 
-`oauth.EntityEvaluationScopeProvider` adapts the IAM evaluation client. Its
+`oauth.EntityEvaluationScopeProvider` adapts an injected `gating.EntityPermissionProvider`
+and `gating.PrincipalResolver`. Its
 required `Permission` callback is a trusted host mapping of scope admission to a
 named permission such as `read`. Action-specific mandatory gates independently
 check permissions such as `write`. No permission name is inferred from a remote
@@ -44,9 +45,8 @@ the updated shared module to be linked or published.
 allowing gates to report `needsEntity` and `entityDenied`. Identity rejection and
 provider outage remain distinct and fail closed.
 
-For large accounts, configure `oauth.AccountUserInfoConfig.OmitEntityPermissions`
-(or the corresponding `UserInfoConfig` field) alongside the selected-scope
-provider. The adapter then requests `includeEntityPermissions=false`, requires
-source `evaluatedAt`/`validUntil`, and leaves entity scopes unloaded. Default
-configuration continues requiring complete permission lists. Neither projection
-nor caches restart the identity service's original authority lease.
+For large entity populations, the host may configure its identity binding to
+omit expanded entity grants and supply a selected-scope authority instead.
+That binding must retain the identity service's original source lease; omitted
+projection and permission caches cannot restart it. Response wire schemas and
+projection options belong to that provider binding, outside this module.
