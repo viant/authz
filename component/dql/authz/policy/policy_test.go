@@ -91,7 +91,7 @@ func TestResourcePolicyTranscribesDeclaredPackages(t *testing.T) {
 	module := datatest.NewGeneratedModule(t)
 	for _, component := range []struct{ name, operation string }{{"reader", "get"}, {"writer", "patch"}} {
 		compiled := compilePolicy(t, ctx, component.name, column.New(column.Connections{"authz": db}))
-		generated, err := (transcribe.Generator{Operation: component.operation, EphemeralOwnership: true}).Generate(ctx, transcribe.GenerationRequest{Compiled: compiled, Destination: module.Root})
+		generated, err := (transcribe.Generator{Operation: component.operation}).Generate(ctx, transcribe.GenerationRequest{Compiled: compiled, Destination: module.Root})
 		if err != nil {
 			t.Fatalf("generate resource policy %s: %v", component.name, err)
 		}

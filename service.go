@@ -29,10 +29,11 @@ type Store interface {
 // Service separates policy inspection from policy administration. The provider
 // supplies verified identity/facts; neither operation accepts them from a client.
 type Service struct {
-	Store     Store
-	Provider  Provider
-	Directory Directory
-	Decisions DecisionProvider
+	Store          Store
+	Provider       Provider
+	Directory      Directory
+	Decisions      DecisionProvider
+	SelectedScopes SelectedScopeProvider
 }
 
 // DecisionProvider adds a trusted remote policy decision to local ACL rules.
@@ -45,7 +46,7 @@ func (s *Service) evaluate(ctx context.Context, request Request, doc Document, f
 	if ctx.Err() != nil {
 		return Decision{}, ErrDenied
 	}
-	local, err := Evaluate(request, doc.Policies, facts, time.Now())
+	local, _, err := s.evaluateSelected(ctx, request, doc, facts)
 	if err != nil || s.Decisions == nil || doc.Policies[request.Action].Mode == "public" {
 		return local, err
 	}
@@ -120,7 +121,16 @@ func (s *Service) AuthorizeWithRevision(ctx context.Context, request Request) (D
 			return Decision{}, Facts{}, 0, ErrDenied
 		}
 	}
-	decision, err := s.evaluate(ctx, request, doc, facts)
+	decision, selectedFacts, err := s.evaluateSelected(ctx, request, doc, facts)
+	facts = selectedFacts
+	if err == nil && s.Decisions != nil && p.Mode != "public" {
+		remote, remoteErr := s.Decisions.Evaluate(ctx, request, doc, facts)
+		if remoteErr != nil || ctx.Err() != nil || !facts.ValidUntil.After(time.Now()) {
+			err = ErrDenied
+		} else {
+			decision, err = Intersect(decision, remote)
+		}
+	}
 	if err != nil {
 		return Decision{}, Facts{}, 0, err
 	}
@@ -149,6 +159,10 @@ func (s *Service) GetWithStatus(ctx context.Context, resource Resource) (Documen
 }
 
 func (s *Service) authorizeDocumentWithStatus(ctx context.Context, request Request) (Decision, Facts, Document, error) {
+	return s.authorizeDocumentWithSelection(ctx, request, nil)
+}
+
+func (s *Service) authorizeDocumentWithSelection(ctx context.Context, request Request, selected *[]Entity) (Decision, Facts, Document, error) {
 	if s == nil || s.Store == nil || ctx == nil || ctx.Err() != nil {
 		return Decision{}, Facts{}, Document{}, ErrUnavailable
 	}
@@ -182,8 +196,20 @@ func (s *Service) authorizeDocumentWithStatus(ctx context.Context, request Reque
 			return Decision{}, Facts{}, doc, ErrIdentityDenied
 		}
 	}
-	local, err := Evaluate(request, doc.Policies, facts, time.Now())
+	if selected != nil && policy.EntityType != "" {
+		request.Selection = selected
+		if len(*selected) == 0 {
+			return Decision{}, Facts{}, doc, ErrSelectionRequired
+		}
+	}
+	local, facts, err := s.evaluateSelected(ctx, request, doc, facts)
 	if err != nil {
+		if errors.Is(err, ErrUnavailable) {
+			return Decision{}, Facts{}, Document{}, ErrUnavailable
+		}
+		if errors.Is(err, ErrIdentityDenied) || errors.Is(err, ErrSelectionDenied) {
+			return Decision{}, Facts{}, doc, err
+		}
 		return Decision{}, Facts{}, doc, ErrDenied
 	}
 	if s.Decisions == nil || policy.Mode == "public" {

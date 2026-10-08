@@ -32,16 +32,17 @@ type AccountUserInfoProvider struct {
 // account IDs or a shared policy namespace for all verified accounts. Dynamic
 // ownership uses NewAccountUserInfo with a trusted TenantResolver.
 type AccountUserInfoConfig struct {
-	Issuer               string
-	Audience             string
-	Algorithms           []string
-	UserInfoURL          string
-	JWKSURL              string
-	JWKSRefreshInterval  time.Duration
-	FactLease            time.Duration
-	TenantByAccount      map[int]string
-	TenantForAllAccounts string
-	Client               *http.Client
+	OmitEntityPermissions bool
+	Issuer                string
+	Audience              string
+	Algorithms            []string
+	UserInfoURL           string
+	JWKSURL               string
+	JWKSRefreshInterval   time.Duration
+	FactLease             time.Duration
+	TenantByAccount       map[int]string
+	TenantForAllAccounts  string
+	Client                *http.Client
 }
 
 func NewConfiguredAccountUserInfo(config AccountUserInfoConfig) (*AccountUserInfoProvider, error) {
@@ -63,7 +64,7 @@ func NewConfiguredAccountUserInfo(config AccountUserInfoConfig) (*AccountUserInf
 	if err != nil {
 		return nil, err
 	}
-	return NewAccountUserInfo(UserInfoConfig{Issuer: config.Issuer, Audience: config.Audience, Algorithms: config.Algorithms, Keyfunc: keyfunc, URL: config.UserInfoURL, Client: config.Client, FactLease: config.FactLease}, func(_ context.Context, _ string, accountID int) (string, error) {
+	return NewAccountUserInfo(UserInfoConfig{Issuer: config.Issuer, Audience: config.Audience, Algorithms: config.Algorithms, Keyfunc: keyfunc, URL: config.UserInfoURL, Client: config.Client, FactLease: config.FactLease, OmitEntityPermissions: config.OmitEntityPermissions}, func(_ context.Context, _ string, accountID int) (string, error) {
 		if sharedTenant != "" {
 			return sharedTenant, nil
 		}

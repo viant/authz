@@ -145,10 +145,11 @@ func (e *Evaluator) evaluate(ctx context.Context, req Request, withACL bool) (De
 	if req.RequestID == "" || req.Resource.Kind == "" || req.Resource.ID == "" || req.Action == "" {
 		return Decision{}, authz.ErrDenied
 	}
-	now := time.Now()
+	clock := time.Now
 	if e.Now != nil {
-		now = e.Now()
+		clock = e.Now
 	}
+	now := clock()
 	p, err := e.Principals.ResolvePrincipal(ctx)
 	if errors.Is(err, authz.ErrDenied) {
 		return Decision{}, authz.ErrDenied
@@ -185,8 +186,14 @@ func (e *Evaluator) evaluate(ctx context.Context, req Request, withACL bool) (De
 	result := Decision{SchemaVersion: 1, DecisionID: hex.EncodeToString(decisionID[:]), RequestID: base.RequestID, Subject: base.Subject, Issuer: base.Issuer, TenantID: base.TenantID, AccountID: base.AccountID, ResourceKind: base.ResourceKind, ResourceID: base.ResourceID, ResourceVersion: base.ResourceVersion, Action: base.Action, RequirementsRevision: base.RequirementsRevision, EntitySelectionHash: hash, Effect: "deny", ValidUntil: p.Facts.ValidUntil, ProviderRevision: "local:" + doc.Revision + ":identity:" + hex.EncodeToString(identityRevision[:12])}
 	deny := func(reason string) (Decision, error) { result.ReasonCode = reason; return result, nil }
 	if withACL {
-		acl, facts, policyRevision, err := e.ACL.AuthorizeWithStatus(ctx, authz.Request{Resource: req.Resource, Action: req.Action})
+		acl, facts, policyRevision, err := e.ACL.AuthorizeSelectionWithStatus(ctx, authz.Request{Resource: req.Resource, Action: req.Action}, selected)
 		if err != nil {
+			if errors.Is(err, authz.ErrSelectionRequired) {
+				return deny("needsEntity")
+			}
+			if errors.Is(err, authz.ErrSelectionDenied) {
+				return deny("entityDenied")
+			}
 			if errors.Is(err, authz.ErrUnavailable) {
 				return Decision{}, ErrUnavailable
 			}
@@ -256,7 +263,7 @@ func (e *Evaluator) evaluate(ctx context.Context, req Request, withACL bool) (De
 		if errors.Is(err, authz.ErrDenied) {
 			return Decision{}, authz.ErrDenied
 		}
-		if err != nil || !validProviderDecision(checked, base, now) {
+		if err != nil || !validProviderDecision(checked, base, clock()) {
 			return Decision{}, ErrUnavailable
 		}
 		if checked.ValidUntil.Before(result.ValidUntil) {
@@ -281,7 +288,7 @@ func (e *Evaluator) evaluate(ctx context.Context, req Request, withACL bool) (De
 		if errors.Is(err, authz.ErrDenied) {
 			return Decision{}, authz.ErrDenied
 		}
-		if err != nil || !validProviderDecision(checked, base, now) {
+		if err != nil || !validProviderDecision(checked, base, clock()) {
 			return Decision{}, ErrUnavailable
 		}
 		if checked.ValidUntil.Before(result.ValidUntil) {
@@ -303,14 +310,14 @@ func (e *Evaluator) evaluate(ctx context.Context, req Request, withACL bool) (De
 		if errors.Is(err, authz.ErrDenied) {
 			return Decision{}, authz.ErrDenied
 		}
-		if err != nil || !samePrincipalAuthority(p, current) || !current.Facts.ValidUntil.After(now) {
+		if err != nil || !samePrincipalAuthority(p, current) || !current.Facts.ValidUntil.After(clock()) {
 			return Decision{}, ErrUnavailable
 		}
 		if current.Facts.ValidUntil.Before(result.ValidUntil) {
 			result.ValidUntil = current.Facts.ValidUntil
 		}
 	}
-	if !result.ValidUntil.After(now) {
+	if !result.ValidUntil.After(clock()) {
 		return Decision{}, authz.ErrDenied
 	}
 	result.Effect = "allow"

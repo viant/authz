@@ -33,6 +33,9 @@ type UserInfoConfig struct {
 	// account-bound wrapper. Hosts set it to their identity service's allowed
 	// freshness window; the ID token expiry remains an upper bound.
 	FactLease time.Duration
+	// OmitEntityPermissions explicitly requests identity/role/feature facts only.
+	// Selected entity authorization must be configured separately by the host.
+	OmitEntityPermissions bool
 }
 
 type userInfoClaims struct {
@@ -88,7 +91,12 @@ func (p *UserInfoProvider) Resolve(ctx context.Context) (access.Facts, error) {
 	if err != nil {
 		return access.Facts{}, err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, p.config.URL, nil)
+	started := time.Now()
+	endpoint := p.config.URL
+	if p.config.OmitEntityPermissions {
+		endpoint += "?includeEntityPermissions=false"
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return access.Facts{}, access.ErrUnavailable
 	}
@@ -110,17 +118,44 @@ func (p *UserInfoProvider) Resolve(ctx context.Context) (access.Facts, error) {
 	if err != nil || len(body) > maxUserInfoBytes {
 		return access.Facts{}, access.ErrUnavailable
 	}
-	info, err := decodeUserInfo(body)
+	info, err := decodeUserInfoProjection(body, p.config.OmitEntityPermissions)
 	if err != nil || info.UserID != claims.UserID || info.AccountID != claims.AccountID || info.Subject != claims.Subject {
 		return access.Facts{}, access.ErrDenied
 	}
-	groups := access.EntityGroups{}
-	for _, grant := range info.EntityPermissions {
-		groups[grant.Type] = append(groups[grant.Type], grant.ID)
+	var groups access.EntityGroups
+	if !p.config.OmitEntityPermissions {
+		groups = access.EntityGroups{}
+	}
+	if !p.config.OmitEntityPermissions {
+		for _, grant := range info.EntityPermissions {
+			groups[grant.Type] = append(groups[grant.Type], grant.ID)
+		}
+	}
+	lease := claims.ExpiresAt.Time
+	if p.config.FactLease > 0 {
+		if limit := started.Add(p.config.FactLease); limit.Before(lease) {
+			lease = limit
+		}
+	}
+	if info.HasSourceLease {
+		if !info.ValidUntil.After(time.Now()) || info.EvaluatedAt.After(time.Now()) {
+			return access.Facts{}, access.ErrDenied
+		}
+		if info.ValidUntil.Before(lease) {
+			lease = info.ValidUntil
+		}
+		if p.config.FactLease > 0 {
+			if limit := info.EvaluatedAt.Add(p.config.FactLease); limit.Before(lease) {
+				lease = limit
+			}
+		}
+	}
+	if !lease.After(time.Now()) {
+		return access.Facts{}, access.ErrDenied
 	}
 	return access.Facts{Subject: claims.Subject, Tenant: strconv.Itoa(claims.AccountID), Issuer: claims.Issuer,
 		Roles: info.Roles, Exposures: info.Features, EntityGroups: groups,
-		EntityPermissions: info.EntityPermissions, ValidUntil: claims.ExpiresAt.Time}, nil
+		EntityPermissions: info.EntityPermissions, ValidUntil: lease}, nil
 }
 
 // ResolveIdentity verifies the ID token without consulting user-info. It is
@@ -152,6 +187,9 @@ func (p *UserInfoProvider) verifiedClaims(ctx context.Context) (*userInfoClaims,
 }
 
 type userInfo struct {
+	EvaluatedAt       time.Time
+	ValidUntil        time.Time
+	HasSourceLease    bool
 	UID               string
 	Subject           string
 	UserID            int
@@ -161,7 +199,9 @@ type userInfo struct {
 	EntityPermissions []access.EntityPermission
 }
 
-func decodeUserInfo(body []byte) (userInfo, error) {
+func decodeUserInfo(body []byte) (userInfo, error) { return decodeUserInfoProjection(body, false) }
+
+func decodeUserInfoProjection(body []byte, omitEntities bool) (userInfo, error) {
 	root, err := uniqueObject(body)
 	if err != nil {
 		return userInfo{}, err
@@ -194,7 +234,22 @@ func decodeUserInfo(body []byte) (userInfo, error) {
 	if info.UserID <= 0 || info.AccountID <= 0 || info.Subject == "" || info.Roles == nil || info.Features == nil {
 		return userInfo{}, access.ErrDenied
 	}
+	evalRaw, hasEval := objectField(object, "evaluatedAt")
+	expiryRaw, hasExpiry := objectField(object, "validUntil")
+	if hasEval != hasExpiry || omitEntities && !hasEval {
+		return userInfo{}, access.ErrDenied
+	}
+	if hasEval {
+		if json.Unmarshal(evalRaw, &info.EvaluatedAt) != nil || json.Unmarshal(expiryRaw, &info.ValidUntil) != nil || info.EvaluatedAt.IsZero() || !info.ValidUntil.After(info.EvaluatedAt) || info.ValidUntil.After(info.EvaluatedAt.Add(5*time.Minute)) {
+			return userInfo{}, access.ErrDenied
+		}
+		info.HasSourceLease = true
+	}
 	grantsRaw, found := objectField(object, "entityPermissions")
+	if omitEntities && !found {
+		grantsRaw = []byte("[]")
+		found = true
+	}
 	if !found || bytes.Equal(grantsRaw, []byte("null")) {
 		return userInfo{}, access.ErrDenied
 	}
@@ -237,6 +292,9 @@ func decodeUserInfo(body []byte) (userInfo, error) {
 			}
 			seen[name] = true
 		}
+	}
+	if omitEntities {
+		info.EntityPermissions = nil
 	}
 	sort.Strings(info.Roles)
 	sort.Strings(info.Features)
