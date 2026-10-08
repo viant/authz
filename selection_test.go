@@ -106,7 +106,6 @@ func TestStaticSelectionValidationAndIsolation(t *testing.T) {
 		func(d *SelectionDocument) {
 			d.Overrides = append(d.Overrides, VersionOverride{Version: "3", Priority: 1, RequiredExposures: []string{"canary"}})
 		},
-		func(d *SelectionDocument) { d.Overrides[0].Version = d.DefaultVersion },
 	} {
 		invalid := cloneSelection(copy)
 		mutate(&invalid)
@@ -161,5 +160,48 @@ func TestSelectorPreservesEntityBoundsAndProtectsPolicyRead(t *testing.T) {
 	}
 	if _, _, err = selector.FindPolicy(context.Background(), family); !errors.Is(err, ErrDenied) {
 		t.Fatal("bounded decision exposed whole policy", err)
+	}
+}
+
+func TestSelectionPermitsDeterministicTiesAndDefaultTarget(t *testing.T) {
+	doc := SelectionDocument{Resource: ResourceFamily{Kind: "window", ID: "window://studio/example", Tenant: "tenant"}, Revision: 1, DefaultVersion: "working", Overrides: []VersionOverride{{Version: "1", Priority: 5, RequiredExposures: []string{"beta"}}, {Version: "1", Priority: 5, RequiredExposures: []string{"canary"}}, {Version: "working", Priority: 10, RequiredExposures: []string{"draft"}}}}
+	if _, err := NewStaticSelectionStore([]SelectionDocument{doc}); err != nil {
+		t.Fatalf("deterministic map rejected: %v", err)
+	}
+	doc.Overrides[1].Version = "2"
+	if _, err := NewStaticSelectionStore([]SelectionDocument{doc}); err == nil {
+		t.Fatal("differing target tie accepted")
+	}
+}
+
+func TestDefaultTargetOverrideOutranksExposedStamp(t *testing.T) {
+	family := ResourceFamily{Kind: "window", ID: "window://studio/example", Tenant: "tenant"}
+	mappings, err := NewStaticSelectionStore([]SelectionDocument{{Resource: family, Revision: 1, DefaultVersion: "working", Overrides: []VersionOverride{{Version: "1", Priority: 5, RequiredExposures: []string{"beta"}}, {Version: "1", Priority: 5, RequiredExposures: []string{"canary"}}, {Version: "working", Priority: 10, RequiredExposures: []string{"draft"}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	docs := []Document{}
+	for _, version := range []string{"working", "1"} {
+		docs = append(docs, Document{Resource: Resource{Kind: family.Kind, ID: family.ID, Tenant: family.Tenant, Version: version}, Revision: 1, Policies: map[string]Policy{"open": {Mode: "protected", Rule: &Rule{Kind: "role", Value: "reader"}}}})
+	}
+	policies, err := NewStaticStore(docs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := &selectionProvider{facts: Facts{Subject: "user", Issuer: "idp", Tenant: family.Tenant, Roles: []string{"reader"}, ValidUntil: time.Now().Add(time.Minute)}}
+	selector := Selector{Mappings: mappings, Service: &Service{Store: policies, Provider: provider}}
+	for _, test := range []struct {
+		exposures []string
+		want      string
+	}{{[]string{"canary"}, "1"}, {[]string{"beta", "canary"}, "1"}, {[]string{"beta", "draft"}, "working"}} {
+		provider.facts.Exposures = test.exposures
+		selected, err := selector.Authorize(context.Background(), SelectionRequest{Resource: family, Action: "open"})
+		if err != nil || selected.Resource.Version != test.want {
+			t.Fatalf("selection=%+v err=%v", selected, err)
+		}
+	}
+	provider.facts.Roles = nil
+	if _, err := selector.Authorize(context.Background(), SelectionRequest{Resource: family, Action: "open"}); !errors.Is(err, ErrDenied) {
+		t.Fatalf("default-target override granted ACL: %v", err)
 	}
 }

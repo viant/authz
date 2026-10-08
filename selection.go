@@ -80,12 +80,12 @@ func validateSelection(doc SelectionDocument) error {
 	if !clean(doc.Resource.Kind) || !clean(doc.Resource.ID) || !clean(doc.Resource.Tenant) || !clean(doc.DefaultVersion) || doc.Revision < 1 {
 		return fmt.Errorf("invalid resource selection")
 	}
-	priorities := map[int]bool{}
+	priorities := map[int]string{}
 	for _, override := range doc.Overrides {
-		if !clean(override.Version) || override.Version == doc.DefaultVersion || len(override.RequiredExposures) == 0 || priorities[override.Priority] {
+		if !clean(override.Version) || len(override.RequiredExposures) == 0 || priorities[override.Priority] != "" && priorities[override.Priority] != override.Version {
 			return fmt.Errorf("invalid or ambiguous version override")
 		}
-		priorities[override.Priority] = true
+		priorities[override.Priority] = override.Version
 		seen := map[string]bool{}
 		for _, exposure := range override.RequiredExposures {
 			if !clean(exposure) || seen[exposure] {
