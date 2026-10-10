@@ -20,6 +20,7 @@ type httpScopeKey struct{}
 type httpScope struct {
 	sync.Mutex
 	provider         *HTTPIdentityProvider
+	source           context.Context
 	profile          httpProfile
 	metadata, closed bool
 }
@@ -69,7 +70,7 @@ func (p *HTTPIdentityProvider) profile(ctx context.Context) (httpProfile, error)
 	state.Lock()
 	defer state.Unlock()
 	profile := state.profile
-	if state.closed || profile.bearerHash != hashHTTP(bearer) || !profile.principal.Facts.ValidUntil.After(time.Now()) || profile.principal.Facts.Subject != claims.Subject {
+	if state.closed || state.source == nil || state.source.Err() != nil || profile.bearerHash != hashHTTP(bearer) || !profile.principal.Facts.ValidUntil.After(time.Now()) || profile.principal.Facts.Subject != claims.Subject {
 		return httpProfile{}, authz.ErrDenied
 	}
 	if p.config.Mapping.JWTAccountID != "" {
@@ -95,7 +96,7 @@ func (p *HTTPIdentityProvider) beginScope(ctx context.Context, metadata bool) (c
 	if e != nil {
 		return nil, nil, e
 	}
-	state := &httpScope{provider: p, profile: cloneHTTPProfile(initial), metadata: metadata}
+	state := &httpScope{provider: p, source: base, profile: cloneHTTPProfile(initial), metadata: metadata}
 	scoped := context.WithValue(base, httpScopeKey{}, state)
 	finish := func() error {
 		state.Lock()
