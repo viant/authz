@@ -11,7 +11,7 @@ import (
 // authority. A configured signed account claim permits zero-userinfo template
 // delivery; an unproven account cannot silently become a trusted native context.
 func (p *HTTPIdentityProvider) ResolveIdentityPrincipal(ctx context.Context) (gating.Principal, error) {
-	claims, signed, bearer, e := p.claims(ctx)
+	claims, signed, _, e := p.claims(ctx)
 	if e != nil {
 		return gating.Principal{}, authz.ErrIdentityDenied
 	}
@@ -36,7 +36,7 @@ func (p *HTTPIdentityProvider) ResolveIdentityPrincipal(ctx context.Context) (ga
 	if tenant == "" {
 		return gating.Principal{}, authz.ErrIdentityDenied
 	}
-	revision := hashHTTP([]string{hashHTTP(bearer), claims.Subject, claims.Issuer, account, user, tenant})
+	revision := hashHTTP([]string{claims.Subject, claims.Issuer, account, user, tenant})
 	deadline := minHTTPTime(claims.ExpiresAt.Time, time.Now().Add(p.lease))
 	if !deadline.After(time.Now()) {
 		return gating.Principal{}, authz.ErrIdentityDenied

@@ -317,12 +317,14 @@ func (p *HTTPIdentityProvider) readProfile(ctx context.Context) (httpProfile, er
 	}
 	facts := authz.Facts{Subject: sub, Issuer: claims.Issuer, Tenant: tenant, Roles: roles, Exposures: exposures, EntityGroups: entities, EntityPermissions: permissions, ValidUntil: deadline}
 	principal := gating.Principal{Facts: facts, AccountID: account, MembershipGroups: groups}
+	// Authority revision describes verified identity/facts. Credential freshness
+	// and decision/cache isolation remain independently bound to bearerHash.
 	revision := hashHTTP(struct {
-		Credential, User, Account, Source string
-		Facts                             authz.Facts
-		Groups                            []string
-		Projection                        map[string]any
-	}{hashHTTP(bearer), user, account, sourceRevision, withoutHTTPDeadline(facts), groups, projection})
+		User, Account, Source string
+		Facts                 authz.Facts
+		Groups                []string
+		Projection            map[string]any
+	}{user, account, sourceRevision, withoutHTTPDeadline(facts), groups, projection})
 	principal.IdentityRevision = revision
 	principal.Facts.AuthorityRevision = revision
 	if ctx.Err() != nil {
