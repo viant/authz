@@ -1,4 +1,4 @@
-SELECT resource_policy.tenant_id, resource_policy.resource_kind, resource_policy.resource_id, resource_policy.resource_version, resource_policy.revision, resource_policy.policies_json, resource_policy.actor_id, resource_policy.occurred_at FROM  (
+SELECT resource_policy.* FROM  (
     SELECT h.tenant_id, h.resource_kind, h.resource_id, h.resource_version, h.revision,
        r.policies_json, r.actor_id, r.occurred_at
 FROM resource_policies h
