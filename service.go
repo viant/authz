@@ -47,7 +47,8 @@ func (s *Service) evaluate(ctx context.Context, request Request, doc Document, f
 		return Decision{}, ErrDenied
 	}
 	local, _, err := s.evaluateSelected(ctx, request, doc, facts)
-	if err != nil || s.Decisions == nil || doc.Policies[request.Action].Mode == "public" {
+	policy, _ := PolicyForAction(doc.Policies, request.Action)
+	if err != nil || s.Decisions == nil || policy.Mode == "public" {
 		return local, err
 	}
 	remote, err := s.Decisions.Evaluate(ctx, request, doc, facts)
@@ -107,7 +108,7 @@ func (s *Service) AuthorizeWithRevision(ctx context.Context, request Request) (D
 	if err != nil || doc.Resource != request.Resource || doc.Revision < 1 {
 		return Decision{}, Facts{}, 0, ErrDenied
 	}
-	p, ok := doc.Policies[request.Action]
+	p, ok := PolicyForAction(doc.Policies, request.Action)
 	if !ok {
 		return Decision{}, Facts{}, 0, ErrDenied
 	}
@@ -176,7 +177,7 @@ func (s *Service) authorizeDocumentWithSelection(ctx context.Context, request Re
 	if doc.Resource != request.Resource || doc.Revision < 1 {
 		return Decision{}, Facts{}, Document{}, ErrDenied
 	}
-	policy, exists := doc.Policies[request.Action]
+	policy, exists := PolicyForAction(doc.Policies, request.Action)
 	if !exists {
 		return Decision{}, Facts{}, doc, ErrDenied
 	}
@@ -264,6 +265,10 @@ func ValidatePolicy(action string, p Policy) error {
 		return ErrDenied
 	}
 	switch p.Mode {
+	case "deny":
+		if p.Rule == nil && p.EntityType == "" && len(p.RequiredScopes) == 0 {
+			return nil
+		}
 	case "public":
 		if p.Rule != nil || p.EntityType != "" || len(p.RequiredScopes) != 0 {
 			return ErrDenied

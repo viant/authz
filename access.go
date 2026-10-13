@@ -84,7 +84,7 @@ func Evaluate(req Request, policies map[string]Policy, facts Facts, now time.Tim
 	if req.Resource.Kind == "" || req.Resource.ID == "" || req.Resource.Tenant == "" || req.Action == "" {
 		return deny()
 	}
-	p, ok := policies[req.Action]
+	p, ok := PolicyForAction(policies, req.Action)
 	if !ok {
 		return deny()
 	}
@@ -171,7 +171,7 @@ func valid(r Rule, depth int) bool {
 func matches(r Rule, f Facts) bool {
 	contains := func(values []string) bool {
 		for _, v := range values {
-			if v == r.Value {
+			if v != "" && (v == r.Value || r.Value == "*") {
 				return true
 			}
 		}
@@ -179,14 +179,14 @@ func matches(r Rule, f Facts) bool {
 	}
 	switch r.Kind {
 	case "subject":
-		return f.Subject == r.Value
+		return f.Subject != "" && (f.Subject == r.Value || r.Value == "*")
 	case "role":
 		return contains(f.Roles)
 	case "exposure":
 		return contains(f.Exposures)
 	case "entity":
 		for _, e := range f.Entities {
-			if e == *r.Entity {
+			if e.Type == r.Entity.Type && e.ID != "" && (e.ID == r.Entity.ID || r.Entity.ID == "*") {
 				return true
 			}
 		}
@@ -205,4 +205,17 @@ func matches(r Rule, f Facts) bool {
 		}
 	}
 	return false
+}
+
+// PolicyForAction resolves an exact policy before the wildcard fallback.
+// An explicit deny therefore overrides an otherwise permissive wildcard.
+func PolicyForAction(policies map[string]Policy, action string) (Policy, bool) {
+	if action == "" {
+		return Policy{}, false
+	}
+	if policy, ok := policies[action]; ok {
+		return policy, true
+	}
+	policy, ok := policies["*"]
+	return policy, ok
 }

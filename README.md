@@ -298,3 +298,16 @@ Static mappings are cloned and immutable; reload configuration by constructing
 a new store. Dynamic persistence can implement `SelectionStore` with atomic,
 versioned mapping snapshots; this package does not add an endpoint table or SQL
 migration for the host.
+
+## Wildcard policies
+
+The action key `*` supplies a fallback for actions without an exact policy. An
+explicit policy always wins, including `{ "mode": "deny" }`. A deny policy has
+no rule, required scopes or entity type. Public wildcard policies are rejected:
+public consumption must name its action explicitly.
+
+For protected rules, a value of `*` matches a nonempty verified subject, role or
+exposure within that condition. An entity rule with a concrete type and ID `*`
+matches any granted ID of that type. It does not grant extra entity IDs or bypass
+required entity scope, OAuth scopes, expiry or tenant checks. Other strings keep
+exact matching; partial glob patterns are not expanded.

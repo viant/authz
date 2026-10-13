@@ -208,7 +208,7 @@ func (s *Selector) resolve(ctx context.Context, request SelectionRequest, policy
 	if doc.Resource != resource || doc.Revision < 1 {
 		return SelectedResource{}, Document{}, ErrDenied
 	}
-	policy, ok := doc.Policies[request.Action]
+	policy, ok := PolicyForAction(doc.Policies, request.Action)
 	if !ok {
 		return SelectedResource{}, Document{}, ErrDenied
 	}

@@ -34,7 +34,7 @@ func (s *Service) AuthorizeSelectionWithStatus(ctx context.Context, request Requ
 }
 
 func (s *Service) evaluateSelected(ctx context.Context, request Request, doc Document, facts Facts) (Decision, Facts, error) {
-	policy := doc.Policies[request.Action]
+	policy, _ := PolicyForAction(doc.Policies, request.Action)
 	if s.SelectedScopes == nil || policy.Mode != "protected" || policy.EntityType == "" || request.Selection == nil {
 		decision, err := Evaluate(request, doc.Policies, facts, time.Now())
 		if err != nil && policy.EntityType != "" && request.Selection != nil {
