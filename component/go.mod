@@ -5,12 +5,12 @@ go 1.25.8
 require (
 	github.com/mattn/go-sqlite3 v1.14.16
 	github.com/stretchr/testify v1.11.1
-	github.com/viant/authz v0.0.0-20261008202630-c983c9e64ee5
-	github.com/viant/datly v1.1.1-0.20261007130749-dd9afcf3da1c
-	github.com/viant/mcp-protocol v0.19.1-0.20261005144737-c504db7a02bb
+	github.com/viant/authz v0.0.0-20261013220326-83350c91a2e0
+	github.com/viant/datly v1.1.1-0.20261014180358-3d6daf6db5e2
+	github.com/viant/mcp-protocol v0.19.1-0.20261008202502-046707df5ed9
 	github.com/viant/scy v0.35.1-0.20260914041206-699e6c909726
-	github.com/viant/structql v0.5.4
-	github.com/viant/xdatly v1.0.1-0.20261005144549-60dd64a21442
+	github.com/viant/structql v0.5.5-0.20261012183420-6a47e96ff5b5
+	github.com/viant/xdatly v1.0.1-0.20261014174705-58addd0dc42d
 )
 
 require (
@@ -48,9 +48,9 @@ require (
 	github.com/viant/govalidator v0.3.4-0.20260913213120-027a9dd54d73 // indirect
 	github.com/viant/igo v0.2.0 // indirect
 	github.com/viant/jsonrpc v0.25.0 // indirect
-	github.com/viant/mcp v0.24.1-0.20261006175714-91a771f529b9 // indirect
-	github.com/viant/sqlparser v0.13.1-0.20261005175605-18369aade19d // indirect
-	github.com/viant/sqlx v0.26.1-0.20261007160236-2cd1d43a54c0 // indirect
+	github.com/viant/mcp v0.24.1-0.20261008165059-494f36529f6e // indirect
+	github.com/viant/sqlparser v0.13.1-0.20261012001419-edea4bd5d9c1 // indirect
+	github.com/viant/sqlx v0.26.1-0.20261013010041-718390a26adf // indirect
 	github.com/viant/toolbox v0.39.0 // indirect
 	github.com/viant/velty v0.4.1-0.20260915052314-fca47c0595f8 // indirect
 	github.com/viant/xlsy v0.3.1 // indirect
@@ -97,10 +97,10 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/viant/afs v1.30.1-0.20260914155934-90e95d483861 // indirect
-	github.com/viant/bindly v0.4.1-0.20261006234956-d0b4e58bac4e
+	github.com/viant/bindly v0.4.1-0.20261011212616-2c051ae6bd9e
 	github.com/viant/parsly v0.3.3 // indirect
-	github.com/viant/structology v0.10.1-0.20261005184011-cdaab8ea7dab // indirect
-	github.com/viant/tagly v0.4.1-0.20261003132159-8165180970e1 // indirect
+	github.com/viant/structology v0.10.1-0.20261014122805-e37281ec0f50 // indirect
+	github.com/viant/tagly v0.4.1-0.20261007173811-969600917520 // indirect
 	github.com/viant/x v0.5.1-0.20260915043005-1bc42b9eef47
 	github.com/viant/xunsafe v0.11.0 // indirect
 	golang.org/x/crypto v0.53.0 // indirect
