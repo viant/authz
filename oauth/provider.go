@@ -288,7 +288,7 @@ func (p *Provider) ResolvePrincipal(ctx context.Context) (gating.Principal, erro
 	if err != nil {
 		return gating.Principal{}, err
 	}
-	claims, bearer, err := p.verifiedClaims(ctx)
+	claims, _, err := p.verifiedClaims(ctx)
 	if err != nil || claims.AccountID == "" || strings.TrimSpace(claims.AccountID) != claims.AccountID || claims.AccountID == "*" {
 		return gating.Principal{}, access.ErrDenied
 	}
@@ -297,6 +297,18 @@ func (p *Provider) ResolvePrincipal(ctx context.Context) (gating.Principal, erro
 			return gating.Principal{}, access.ErrDenied
 		}
 	}
-	digest := sha256.Sum256([]byte(bearer))
+	// Keep expiration/credential bytes out of durable authority identity.
+	// Signature, issuer, audience and expiry were freshly verified above.
+	stableFacts := facts
+	stableFacts.ValidUntil = time.Time{}
+	stable, err := json.Marshal(struct {
+		Facts   access.Facts
+		Account string
+		Groups  []string
+	}{stableFacts, claims.AccountID, claims.MembershipGroups})
+	if err != nil {
+		return gating.Principal{}, access.ErrDenied
+	}
+	digest := sha256.Sum256(stable)
 	return gating.Principal{Facts: facts, AccountID: claims.AccountID, MembershipGroups: append([]string(nil), claims.MembershipGroups...), IdentityRevision: hex.EncodeToString(digest[:])}, nil
 }
