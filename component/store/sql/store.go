@@ -39,7 +39,10 @@ type Store struct {
 	DB *sql.DB
 	// Invoker keeps native access reads/writes inside the caller's Datly
 	// database unit. Standalone SDK hosts leave it nil and use the local runtime.
-	Invoker dexec.ComponentInvoker
+	Invoker       dexec.ComponentInvoker
+	transaction   *sql.Tx
+	transactionDB *sql.DB
+	closed        bool
 
 	mu      sync.Mutex
 	runtime *druntime.Runtime
@@ -51,10 +54,28 @@ var _ acl.Store = (*Store)(nil)
 
 const studioConnector = "authz"
 
+// NewTransactionStore creates an isolated native store for one caller-owned
+// transaction. The trusted caller supplies its exact database handle. Neither
+// this store nor its component runtime may commit/rollback or close that unit.
+// A new transaction requires a new store; cached registrations are never rebound.
+func NewTransactionStore(ctx context.Context, db *sql.DB, tx *sql.Tx) (*Store, error) {
+	if ctx == nil || ctx.Err() != nil || db == nil || tx == nil {
+		return nil, acl.ErrDenied
+	}
+	var live int
+	if err := tx.QueryRowContext(ctx, "SELECT 1").Scan(&live); err != nil {
+		return nil, err
+	}
+	return &Store{DB: db, transactionDB: db, transaction: tx}, nil
+}
+
 // Close releases the hosted component runtime.
 func (s *Store) Close(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.transaction != nil {
+		s.closed = true
+	}
 	if s.runtime == nil {
 		return nil
 	}
@@ -68,6 +89,9 @@ func (s *Store) Close(ctx context.Context) error {
 func (s *Store) components() (*druntime.Runtime, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed || s.transaction != nil && (s.DB != s.transactionDB || s.Invoker != nil) {
+		return nil, acl.ErrDenied
+	}
 	if s.runtime != nil {
 		return s.runtime, nil
 	}
@@ -81,7 +105,7 @@ func (s *Store) components() (*druntime.Runtime, error) {
 	if err := resources.Register(policywriter.PolicyDatlyResourceNamespace, policywriter.PolicyDatlyResources); err != nil {
 		return nil, err
 	}
-	sqlComponent := &dsql.SQLComponent{DB: s.DB}
+	sqlComponent := &dsql.SQLComponent{DB: s.DB, Tx: s.transaction}
 	if err := sqlComponent.RegisterConnector(studioConnector, s.DB); err != nil {
 		return nil, err
 	}
@@ -117,7 +141,7 @@ func (s *Store) components() (*druntime.Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	writerRegistration := &registry.RegisteredComponent{Component: writerArtifact.Component, Input: writerArtifact.Input, Output: writerArtifact.Output, OutputType: reflect.TypeOf(policywriter.Output{}), Handler: handler, Providers: []locator.Provider{views}, DataSource: dml.Source{DB: s.DB}}
+	writerRegistration := &registry.RegisteredComponent{Component: writerArtifact.Component, Input: writerArtifact.Input, Output: writerArtifact.Output, OutputType: reflect.TypeOf(policywriter.Output{}), Handler: handler, Providers: []locator.Provider{views}, DataSource: dml.Source{DB: s.DB, Tx: s.transaction}}
 	writerRegistration.Capabilities.Connector = sqlComponent
 	runtime, err := druntime.NewRuntime([]*registry.RegisteredComponent{readerRegistration, writerRegistration}, druntime.WithResources(resources))
 	if err != nil {
@@ -243,6 +267,14 @@ func (s *Store) activate(ctx context.Context, d acl.Document, expected int64, ac
 }
 
 func (s *Store) invoke(ctx context.Context, write bool, input any) (any, error) {
+	if s.transaction != nil {
+		s.mu.Lock()
+		invalid := s.closed || s.DB != s.transactionDB || s.Invoker != nil
+		s.mu.Unlock()
+		if invalid {
+			return nil, acl.ErrDenied
+		}
+	}
 	if s.Invoker != nil {
 		target := dexec.ComponentTarget{Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[policyreader.PolicyComponent]().PkgPath(), Name: "policy"},
 			Route: spec.RouteRef{Method: "GET", Path: "/_authz/policy-store/read"}}

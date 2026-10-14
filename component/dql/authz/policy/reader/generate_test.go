@@ -65,7 +65,7 @@ func TestGeneratePolicyReader(t *testing.T) {
 	// The compiler expands the view projection with SQLite double-quoted
 	// identifiers. These schema identifiers need no quotes, and the same
 	// generated resource is executed against both SQLite and MySQL.
-	sqlPath := filepath.Join(destination, "policy", "reader", "sql", "policy.sql")
+	sqlPath := filepath.Join(destination, "policy", "reader", "sql", "read.sql")
 	sqlText, err := os.ReadFile(sqlPath)
 	if err != nil {
 		t.Fatal(err)

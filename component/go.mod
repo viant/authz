@@ -2,12 +2,10 @@ module github.com/viant/authz/component
 
 go 1.25.8
 
-// Use the in-repository core while the scope contract awaits a published version.
-replace github.com/viant/authz => ../
-
 require (
 	github.com/mattn/go-sqlite3 v1.14.16
-	github.com/viant/authz v0.0.0-20260928232107-6a9bf1e79cc5
+	github.com/stretchr/testify v1.11.1
+	github.com/viant/authz v0.0.0-20261008202630-c983c9e64ee5
 	github.com/viant/datly v1.1.1-0.20261007130749-dd9afcf3da1c
 	github.com/viant/mcp-protocol v0.19.1-0.20261005144737-c504db7a02bb
 	github.com/viant/scy v0.35.1-0.20260914041206-699e6c909726
@@ -20,6 +18,7 @@ require (
 	github.com/aerospike/aerospike-client-go v4.5.2+incompatible // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.2.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
@@ -40,6 +39,7 @@ require (
 	github.com/mazznoer/csscolorparser v0.1.3 // indirect
 	github.com/mohae/deepcopy v0.0.0-20170929034955-c48cc78d4826 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
+	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/richardlehane/mscfb v1.0.4 // indirect
 	github.com/richardlehane/msoleps v1.0.3 // indirect
