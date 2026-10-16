@@ -9,7 +9,6 @@ import (
 	"github.com/viant/authz/gating"
 	"slices"
 	"sync"
-	"time"
 )
 
 func decodeHTTPJWT(payload string) (json.RawMessage, error) {
@@ -70,12 +69,18 @@ func (p *HTTPIdentityProvider) profile(ctx context.Context) (httpProfile, error)
 	state.Lock()
 	defer state.Unlock()
 	profile := state.profile
-	if state.closed || state.source == nil || state.source.Err() != nil || profile.bearerHash != hashHTTP(bearer) || !profile.principal.Facts.ValidUntil.After(time.Now()) || profile.principal.Facts.Subject != claims.Subject {
+	if state.closed || state.source == nil || state.source.Err() != nil || profile.bearerHash != hashHTTP(bearer) || !profile.principal.Facts.ValidUntil.After(p.now()) || profile.principal.Facts.Subject != claims.Subject {
 		return httpProfile{}, authz.ErrDenied
 	}
 	if p.config.Mapping.JWTAccountID != "" {
 		id, e := idAt(signed, p.config.Mapping.JWTAccountID)
 		if e != nil || id != profile.principal.AccountID {
+			return httpProfile{}, authz.ErrDenied
+		}
+	}
+	if p.config.Mapping.JWTUserID != "" {
+		id, err := idAt(signed, p.config.Mapping.JWTUserID)
+		if err != nil || id != profile.userID {
 			return httpProfile{}, authz.ErrDenied
 		}
 	}
@@ -99,6 +104,16 @@ func (p *HTTPIdentityProvider) beginScope(ctx context.Context, metadata bool) (c
 	state := &httpScope{provider: p, source: base, profile: cloneHTTPProfile(initial), metadata: metadata}
 	scoped := context.WithValue(base, httpScopeKey{}, state)
 	finish := func() error {
+		if p.cacheTTL > 0 {
+			_, err := p.profile(scoped)
+			state.Lock()
+			defer state.Unlock()
+			if state.closed {
+				return authz.ErrDenied
+			}
+			state.closed = true
+			return err
+		}
 		state.Lock()
 		if state.closed {
 			state.Unlock()
@@ -110,7 +125,7 @@ func (p *HTTPIdentityProvider) beginScope(ctx context.Context, metadata bool) (c
 		if e != nil {
 			return e
 		}
-		if ctx.Err() != nil || !initial.principal.Facts.ValidUntil.After(time.Now()) || !current.principal.Facts.ValidUntil.After(time.Now()) || initial.bearerHash != current.bearerHash || !gating.SamePrincipalAuthority(initial.principal, current.principal) || current.principal.Facts.ValidUntil.Before(initial.principal.Facts.ValidUntil) {
+		if ctx.Err() != nil || !initial.principal.Facts.ValidUntil.After(p.now()) || !current.principal.Facts.ValidUntil.After(p.now()) || initial.bearerHash != current.bearerHash || !gating.SamePrincipalAuthority(initial.principal, current.principal) || current.principal.Facts.ValidUntil.Before(initial.principal.Facts.ValidUntil) {
 			return authz.ErrDenied
 		}
 		return nil
@@ -145,4 +160,39 @@ func (p *HTTPIdentityProvider) MetadataReadActive(ctx context.Context) bool {
 	}
 	_, e := p.profile(ctx)
 	return e == nil
+}
+
+// BeginOperation captures one verified userinfo profile for an operation. Local
+// identity/display reads reuse it; the actual data producer remains responsible
+// for authorizing business requests. Finish closes the scope without fetching
+// userinfo again or comparing business roles after a producer call. No profile
+// is retained outside this context; token/account/expiry checks still apply.
+func (p *HTTPIdentityProvider) BeginOperation(ctx context.Context) (context.Context, func() error, error) {
+	if ctx == nil || ctx.Err() != nil {
+		return nil, nil, authz.ErrDenied
+	}
+	if state, _ := ctx.Value(httpScopeKey{}).(*httpScope); state != nil && state.provider == p {
+		if _, err := p.profile(ctx); err != nil {
+			return nil, nil, err
+		}
+		return ctx, func() error { _, err := p.profile(ctx); return err }, nil
+	}
+	base := p.withoutScope(ctx)
+	initial, err := p.readProfile(base)
+	if err != nil {
+		return nil, nil, err
+	}
+	state := &httpScope{provider: p, source: base, profile: cloneHTTPProfile(initial)}
+	scoped := context.WithValue(base, httpScopeKey{}, state)
+	finish := func() error {
+		_, err := p.profile(scoped)
+		state.Lock()
+		defer state.Unlock()
+		if state.closed {
+			return authz.ErrDenied
+		}
+		state.closed = true
+		return err
+	}
+	return scoped, finish, nil
 }

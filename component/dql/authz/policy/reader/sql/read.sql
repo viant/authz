@@ -1,5 +1,5 @@
 SELECT h.tenant_id, h.resource_kind, h.resource_id, h.resource_version, h.revision,
-       r.policies_json, r.actor_id, r.occurred_at
+       COALESCE(r.policies_json, '') AS policies_json
 FROM resource_policies h
 LEFT JOIN resource_policy_revisions r
   ON r.tenant_id = h.tenant_id

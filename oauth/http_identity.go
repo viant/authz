@@ -20,6 +20,9 @@ type HTTPIdentityProvider struct {
 	verifier    Config
 	client      *http.Client
 	lease, skew time.Duration
+	cacheTTL    time.Duration
+	profiles    *httpProfileCache
+	now         func() time.Time
 }
 type httpProfile struct {
 	principal  gating.Principal
@@ -62,8 +65,22 @@ func newHTTPIdentity(c HTTPIdentityConfig) (*HTTPIdentityProvider, error) {
 		return nil, e
 	}
 	lease, e := time.ParseDuration(c.FactLease)
-	if e != nil || lease <= 0 || lease > 5*time.Minute {
-		return nil, fmt.Errorf("factLease must be positive and at most five minutes")
+	if e != nil || lease <= 0 || lease > 15*time.Minute {
+		return nil, fmt.Errorf("factLease must be positive and at most fifteen minutes")
+	}
+	cacheTTL := 15 * time.Minute
+	if c.UserInfoCacheTTL != "" {
+		cacheTTL, e = time.ParseDuration(c.UserInfoCacheTTL)
+		if e != nil || cacheTTL < 0 || cacheTTL > 15*time.Minute {
+			return nil, fmt.Errorf("userinfo cache TTL must be zero to fifteen minutes")
+		}
+	}
+	capacity := c.UserInfoCacheMaxEntries
+	if capacity == 0 {
+		capacity = 1024
+	}
+	if capacity < 1 || capacity > 65536 {
+		return nil, fmt.Errorf("userinfo cache capacity must be one to 65536")
 	}
 	refresh, e := time.ParseDuration(c.JWKSRefreshInterval)
 	if e != nil || refresh <= 0 {
@@ -109,6 +126,9 @@ func newHTTPIdentity(c HTTPIdentityConfig) (*HTTPIdentityProvider, error) {
 			return nil, fmt.Errorf("invalid display projection mapping")
 		}
 	}
+	if cacheTTL > 0 && m.JWTAccountID == "" {
+		return nil, fmt.Errorf("cached userinfo requires a signed account mapping; use userInfoCacheTTL 0s for uncached profiles")
+	}
 	c.Mapping = m
 	c.Query = copyHTTPMap(c.Query)
 	for key := range c.Query {
@@ -124,7 +144,11 @@ func newHTTPIdentity(c HTTPIdentityConfig) (*HTTPIdentityProvider, error) {
 	if _, e = New(verifier); e != nil {
 		return nil, e
 	}
-	return &HTTPIdentityProvider{config: c, verifier: verifier, client: authorityClient(c.Client), lease: lease, skew: skew}, nil
+	now := c.Now
+	if now == nil {
+		now = time.Now
+	}
+	return &HTTPIdentityProvider{config: c, verifier: verifier, client: authorityClient(c.Client), lease: lease, skew: skew, cacheTTL: cacheTTL, now: now, profiles: newHTTPProfileCache(capacity, hashHTTP(c))}, nil
 }
 func copyHTTPMap(in map[string]string) map[string]string {
 	out := map[string]string{}
@@ -162,14 +186,14 @@ func (p *HTTPIdentityProvider) claims(ctx context.Context) (*jwt.RegisteredClaim
 	if e != nil {
 		return nil, nil, "", authz.ErrDenied
 	}
+	if !claims.ExpiresAt.After(p.now()) {
+		return nil, nil, "", authz.ErrDenied
+	}
 	return claims, raw, bearer, nil
 }
-func (p *HTTPIdentityProvider) readProfile(ctx context.Context) (httpProfile, error) {
-	claims, signed, bearer, e := p.claims(ctx)
-	if e != nil {
-		return httpProfile{}, e
-	}
-	started := time.Now()
+func (p *HTTPIdentityProvider) readProfileRemote(ctx context.Context, claims *jwt.RegisteredClaims, signed json.RawMessage, bearer string) (httpProfile, error) {
+	var e error
+	started := p.now()
 	u, _ := url.Parse(p.config.UserInfoURL)
 	q := u.Query()
 	for k, v := range p.config.Query {
@@ -311,7 +335,7 @@ func (p *HTTPIdentityProvider) readProfile(ctx context.Context) (httpProfile, er
 		}
 		projection[name] = value
 	}
-	deadline, e := deadlineHTTP(started, time.Now(), claims.ExpiresAt.Time, p.lease, p.skew, raw, m.EvaluatedAt, m.ValidUntil, m.RequireSourceLease)
+	deadline, e := deadlineHTTPWithLimit(started, p.now(), claims.ExpiresAt.Time, p.lease, p.skew, raw, m.EvaluatedAt, m.ValidUntil, m.RequireSourceLease, 15*time.Minute)
 	if e != nil {
 		return httpProfile{}, e
 	}
@@ -346,7 +370,7 @@ func (p *HTTPIdentityProvider) Account(ctx context.Context, expected authz.Facts
 	if e != nil {
 		return "", e
 	}
-	if !expected.ValidUntil.After(time.Now()) || !sameVerifiedAccountFacts(current.Facts, expected) {
+	if !expected.ValidUntil.After(p.now()) || !sameVerifiedAccountFacts(current.Facts, expected) {
 		return "", authz.ErrDenied
 	}
 	return current.AccountID, nil
@@ -356,7 +380,7 @@ func (p *HTTPIdentityProvider) AuthorityRevision(ctx context.Context, expected a
 	if e != nil {
 		return "", time.Time{}, e
 	}
-	if account != current.AccountID || !sameVerifiedAccountFacts(current.Facts, expected) || !expected.ValidUntil.After(time.Now()) {
+	if account != current.AccountID || !sameVerifiedAccountFacts(current.Facts, expected) || !expected.ValidUntil.After(p.now()) {
 		return "", time.Time{}, authz.ErrDenied
 	}
 	return current.IdentityRevision, minHTTPTime(current.Facts.ValidUntil, expected.ValidUntil), nil
@@ -371,7 +395,7 @@ func (p *HTTPIdentityProvider) ProjectAccount(ctx context.Context, expected auth
 	if e != nil {
 		return nil, e
 	}
-	if account != before.principal.AccountID || !sameVerifiedAccountFacts(before.principal.Facts, expected) || !expected.ValidUntil.After(time.Now()) || !gating.SamePrincipalAuthority(before.principal, after.principal) || !reflect.DeepEqual(before.projection, after.projection) || !before.principal.Facts.ValidUntil.After(time.Now()) || !after.principal.Facts.ValidUntil.After(time.Now()) {
+	if account != before.principal.AccountID || !sameVerifiedAccountFacts(before.principal.Facts, expected) || !expected.ValidUntil.After(p.now()) || !gating.SamePrincipalAuthority(before.principal, after.principal) || !reflect.DeepEqual(before.projection, after.projection) || !before.principal.Facts.ValidUntil.After(p.now()) || !after.principal.Facts.ValidUntil.After(p.now()) {
 		return nil, authz.ErrDenied
 	}
 	return before.projection, nil
@@ -387,7 +411,7 @@ func (p *HTTPIdentityProvider) PermissionWithLease(ctx context.Context, expected
 	if e != nil {
 		return false, time.Time{}, e
 	}
-	if !sameVerifiedAccountFacts(before.Facts, expected) || !expected.ValidUntil.After(time.Now()) {
+	if !sameVerifiedAccountFacts(before.Facts, expected) || !expected.ValidUntil.After(p.now()) {
 		return false, time.Time{}, authz.ErrDenied
 	}
 	allowed := authz.HasPermission(before.Facts.EntityPermissions, entity.Type, authz.EntityID(entity.ID), permission)
@@ -395,7 +419,7 @@ func (p *HTTPIdentityProvider) PermissionWithLease(ctx context.Context, expected
 	if e != nil {
 		return false, time.Time{}, e
 	}
-	if !gating.SamePrincipalAuthority(before, after) || !before.Facts.ValidUntil.After(time.Now()) || !after.Facts.ValidUntil.After(time.Now()) {
+	if !gating.SamePrincipalAuthority(before, after) || !before.Facts.ValidUntil.After(p.now()) || !after.Facts.ValidUntil.After(p.now()) {
 		return false, time.Time{}, authz.ErrDenied
 	}
 	return allowed, minHTTPTime(expected.ValidUntil, minHTTPTime(before.Facts.ValidUntil, after.Facts.ValidUntil)), nil

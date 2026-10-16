@@ -81,6 +81,7 @@ func (s *Store) Close(ctx context.Context) error {
 	}
 	err := s.runtime.Shutdown(ctx)
 	s.runtime = nil
+	nativePolicyReaders.Delete(s)
 	return err
 }
 
@@ -117,7 +118,7 @@ func (s *Store) components() (*druntime.Runtime, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resource policy reader: %w", err)
 	}
-	execution, err := readerArtifact.ReaderCompilation().NewExecution(bootstrap.ReaderRuntimeConfig{SQL: sqlComponent})
+	execution, err := readerArtifact.ReaderCompilation().NewExecution(bootstrap.ReaderRuntimeConfig{SQL: sqlComponent, CacheIdentity: fmt.Sprintf("authz:%p", s.DB)})
 	if err != nil {
 		return nil, err
 	}
@@ -150,6 +151,9 @@ func (s *Store) components() (*druntime.Runtime, error) {
 	s.read = componentTarget(readerRegistration.Component)
 	s.write = componentTarget(writerRegistration.Component)
 	s.runtime = runtime
+	if s.transaction == nil {
+		nativePolicyReaders.Store(s, s.DB)
+	}
 	return runtime, nil
 }
 
@@ -257,6 +261,17 @@ func (s *Store) activate(ctx context.Context, d acl.Document, expected int64, ac
 	input := &policywriter.Input{Policies: []*policywriter.ResourcePolicyHead{head}, Has: &policywriter.InputHas{Policies: true}}
 	if _, err = s.invoke(ctx, true, input); err != nil {
 		return acl.Document{}, classify(err)
+	}
+	// Invoker-backed stores can inherit their caller's database unit without
+	// owning s.transaction. Those writes invalidate only after the outer commit.
+	activeTransaction, err := dexec.InvocationTransaction(ctx, s.DB)
+	if err != nil {
+		return acl.Document{}, err
+	}
+	if s.transaction == nil && activeTransaction == nil {
+		if err := InvalidateNativePolicyReaders(ctx, s.DB); err != nil {
+			return acl.Document{}, err
+		}
 	}
 	// Return a detached copy: callers cannot mutate committed policy state.
 	committed := acl.Document{Resource: r, Revision: int64(next)}

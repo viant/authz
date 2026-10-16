@@ -30,7 +30,7 @@ func TestResourcePolicyReaderGeneratedShapes(t *testing.T) {
 		t.Fatal("server-owned policy reader must not accept a client credential")
 	}
 	view := reflect.TypeOf(ResourcePolicy{})
-	for name, want := range map[string]reflect.Type{"TenantId": reflect.TypeOf(""), "ResourceKind": reflect.TypeOf(""), "ResourceId": reflect.TypeOf(""), "ResourceVersion": reflect.TypeOf(""), "ActorId": reflect.TypeOf(""), "Revision": reflect.TypeOf((*int)(nil))} {
+	for name, want := range map[string]reflect.Type{"TenantId": reflect.TypeOf(""), "ResourceKind": reflect.TypeOf(""), "ResourceId": reflect.TypeOf(""), "ResourceVersion": reflect.TypeOf(""), "Revision": reflect.TypeOf((*int)(nil))} {
 		field, ok := view.FieldByName(name)
 		if !ok || field.Type != want {
 			t.Fatalf("view %s type=%v want %v", name, field.Type, want)
@@ -107,7 +107,7 @@ func TestResourcePolicyReaderReadsExactIdentityOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(output.Policies) != 1 || output.Policies[0].Revision == nil || *output.Policies[0].Revision != 2 || output.Policies[0].ActorId != "publisher" || !strings.Contains(string(output.Policies[0].PoliciesJson), "protected") {
+	if len(output.Policies) != 1 || output.Policies[0].Revision == nil || *output.Policies[0].Revision != 2 || !strings.Contains(string(output.Policies[0].PoliciesJson), "protected") {
 		t.Fatalf("policies=%+v", output.Policies)
 	}
 	for name, values := range map[string]url.Values{

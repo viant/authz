@@ -162,6 +162,9 @@ func decodeHTTPBody(r *http.Response, max int64) (json.RawMessage, error) {
 	return b, nil
 }
 func deadlineHTTP(start, now, tokenExpiry time.Time, lease, skew time.Duration, raw json.RawMessage, evalPath, untilPath string, required bool) (time.Time, error) {
+	return deadlineHTTPWithLimit(start, now, tokenExpiry, lease, skew, raw, evalPath, untilPath, required, 5*time.Minute)
+}
+func deadlineHTTPWithLimit(start, now, tokenExpiry time.Time, lease, skew time.Duration, raw json.RawMessage, evalPath, untilPath string, required bool, sourceMaximum time.Duration) (time.Time, error) {
 	deadline := tokenExpiry
 	cap := func(t time.Time) {
 		if t.Before(deadline) {
@@ -184,7 +187,7 @@ func deadlineHTTP(start, now, tokenExpiry time.Time, lease, skew time.Duration, 
 				return time.Time{}, e
 			}
 			until, e := timeAt(raw, untilPath)
-			if e != nil || evaluated.After(now.Add(skew)) || !until.After(evaluated) || until.After(evaluated.Add(5*time.Minute)) {
+			if e != nil || evaluated.After(now.Add(skew)) || !until.After(evaluated) || until.After(evaluated.Add(sourceMaximum)) {
 				return time.Time{}, authz.ErrDenied
 			}
 			cap(until.Add(-skew))

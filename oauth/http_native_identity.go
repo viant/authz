@@ -4,7 +4,6 @@ import (
 	"context"
 	"github.com/viant/authz"
 	"github.com/viant/authz/gating"
-	"time"
 )
 
 // ResolveIdentityPrincipal grants identity only, never role/feature/entity
@@ -37,8 +36,8 @@ func (p *HTTPIdentityProvider) ResolveIdentityPrincipal(ctx context.Context) (ga
 		return gating.Principal{}, authz.ErrIdentityDenied
 	}
 	revision := hashHTTP([]string{claims.Subject, claims.Issuer, account, user, tenant})
-	deadline := minHTTPTime(claims.ExpiresAt.Time, time.Now().Add(p.lease))
-	if !deadline.After(time.Now()) {
+	deadline := minHTTPTime(claims.ExpiresAt.Time, p.now().Add(p.lease))
+	if !deadline.After(p.now()) {
 		return gating.Principal{}, authz.ErrIdentityDenied
 	}
 	return gating.Principal{Facts: authz.Facts{Subject: claims.Subject, Issuer: claims.Issuer, Tenant: tenant, AuthorityRevision: revision, ValidUntil: deadline}, AccountID: account, IdentityRevision: revision}, nil

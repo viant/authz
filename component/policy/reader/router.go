@@ -14,7 +14,7 @@ var _anchorPolicyComponent = reflect.TypeFor[PolicyComponent]()
 
 // Component is the generated component scaffold for policy.
 type PolicyComponent struct {
-	Contract xdatly.Component[Input, Output] "component:\"policy,path=/_authz/policy-store/read,method=GET,connector=authz,view=policy,internal=true\" routeName:\"policy\" caseFormat:\"lc\""
+	Contract xdatly.Component[Input, Output] "component:\"policy,path=/_authz/policy-store/read,method=GET,connector=authz,view=policy,internal=true\" routeName:\"policy\" caseFormat:\"lc\" cache:\"{\\\"enabled\\\":true,\\\"name\\\":\\\"policy\\\",\\\"ttl\\\":\\\"60s\\\",\\\"provider\\\":\\\"afs\\\",\\\"location\\\":\\\"mem://localhost/authz/policy-reader\\\"}\""
 }
 
 // PolicyDatlyType returns the public component type.

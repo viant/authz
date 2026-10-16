@@ -4,17 +4,14 @@ package reader
 
 import (
 	json "encoding/json"
-	time "time"
 )
 
 // ResourcePolicy is generated canonical view metadata for policy.
 type ResourcePolicy struct {
-	TenantId        string          `sqlx:"tenant_id" json:"tenantId"`
-	ResourceKind    string          `sqlx:"resource_kind" json:"resourceKind"`
-	ResourceId      string          `sqlx:"resource_id" json:"resourceId"`
-	ResourceVersion string          `sqlx:"resource_version" json:"resourceVersion"`
-	ActorId         string          `sqlx:"actor_id" json:"actorId"`
+	Revision        *int            `sqlx:"revision,required=true" json:"revision"`
+	TenantId        string          `sqlx:"tenant_id,required=true,primaryKey=true" json:"tenantId"`
+	ResourceKind    string          `sqlx:"resource_kind,required=true,primaryKey=true" json:"resourceKind"`
+	ResourceId      string          `sqlx:"resource_id,required=true,primaryKey=true" json:"resourceId"`
+	ResourceVersion string          `sqlx:"resource_version,required=true,primaryKey=true" json:"resourceVersion"`
 	PoliciesJson    json.RawMessage `sqlx:"policies_json,enc=JSON" json:"policiesJson"`
-	Revision        *int            `sqlx:"revision" json:"revision"`
-	OccurredAt      *time.Time      `sqlx:"occurred_at" json:"occurredAt"`
 }

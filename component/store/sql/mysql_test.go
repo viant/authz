@@ -86,6 +86,15 @@ func TestMySQLPolicyStorage(t *testing.T) {
 			t.Fatal("resource isolation failed", err)
 		}
 	}
+	// The preceding Get populated the native policy cache. A successful native
+	// writer must retire that generation before the next authorization read.
+	if _, err = store.Replace(context.Background(), loaded, loaded.Revision, "cache-refresh"); err != nil {
+		t.Fatal("replace cached policy", err)
+	}
+	second, err = store.Get(context.Background(), resource)
+	if err != nil || second.Revision != 3 {
+		t.Fatalf("native writer failed to invalidate policy cache: revision=%d err=%v", second.Revision, err)
+	}
 	exact := authz.Resource{Kind: "Report", ID: "window://example/Sales-广告", Version: "V1", Tenant: "Tenant"}
 	byteDocument := authz.Document{Resource: exact, Policies: map[string]authz.Policy{"describe": {Mode: "public"}}}
 	if _, err = store.Create(context.Background(), byteDocument, "byte-exact"); err != nil {
@@ -108,11 +117,11 @@ func TestMySQLPolicyStorage(t *testing.T) {
 	if _, err = db.Exec("CREATE TRIGGER reject_authz_history BEFORE INSERT ON resource_policy_revisions FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='fixture history failure'"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = store.Replace(context.Background(), second, 2, "rollback"); err == nil {
+	if _, err = store.Replace(context.Background(), second, 3, "rollback"); err == nil {
 		t.Fatal("history failure accepted")
 	}
 	loaded, err = store.Get(context.Background(), resource)
-	if err != nil || loaded.Revision != 2 {
+	if err != nil || loaded.Revision != 3 {
 		t.Fatalf("head was not rolled back: %+v %v", loaded, err)
 	}
 }

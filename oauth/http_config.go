@@ -11,20 +11,23 @@ import (
 // HTTPIdentityConfig is operator-owned. Mapping paths select fields from the
 // independently verified JWT and the configured identity endpoint, never UI input.
 type HTTPIdentityConfig struct {
-	Kind                 string              `json:"kind"`
-	Issuer               string              `json:"issuer"`
-	Audience             string              `json:"audience"`
-	Algorithms           []string            `json:"algorithms"`
-	UserInfoURL          string              `json:"userInfoUrl"`
-	JWKSURL              string              `json:"jwksUrl"`
-	JWKSRefreshInterval  string              `json:"jwksRefreshInterval"`
-	FactLease            string              `json:"factLease"`
-	SourceClockSkew      string              `json:"sourceClockSkew,omitempty"`
-	TenantByAccount      map[string]string   `json:"tenantByAccount,omitempty"`
-	TenantForAllAccounts string              `json:"tenantForAllAccounts,omitempty"`
-	Mapping              HTTPIdentityMapping `json:"mapping"`
-	Query                map[string]string   `json:"query,omitempty"`
-	Client               *http.Client        `json:"-"`
+	Kind                    string              `json:"kind"`
+	Issuer                  string              `json:"issuer"`
+	Audience                string              `json:"audience"`
+	Algorithms              []string            `json:"algorithms"`
+	UserInfoURL             string              `json:"userInfoUrl"`
+	JWKSURL                 string              `json:"jwksUrl"`
+	JWKSRefreshInterval     string              `json:"jwksRefreshInterval"`
+	FactLease               string              `json:"factLease"`
+	UserInfoCacheTTL        string              `json:"userInfoCacheTTL,omitempty"`
+	UserInfoCacheMaxEntries int                 `json:"userInfoCacheMaxEntries,omitempty"`
+	Now                     func() time.Time    `json:"-"`
+	SourceClockSkew         string              `json:"sourceClockSkew,omitempty"`
+	TenantByAccount         map[string]string   `json:"tenantByAccount,omitempty"`
+	TenantForAllAccounts    string              `json:"tenantForAllAccounts,omitempty"`
+	Mapping                 HTTPIdentityMapping `json:"mapping"`
+	Query                   map[string]string   `json:"query,omitempty"`
+	Client                  *http.Client        `json:"-"`
 }
 type HTTPIdentityMapping struct {
 	Subject            string            `json:"subject"`
