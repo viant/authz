@@ -104,7 +104,7 @@ func TestStaticSelectionValidationAndIsolation(t *testing.T) {
 		func(d *SelectionDocument) { d.DefaultVersion = "" },
 		func(d *SelectionDocument) { d.Overrides[0].RequiredExposures = nil },
 		func(d *SelectionDocument) {
-			d.Overrides = append(d.Overrides, VersionOverride{Version: "3", Priority: 1, RequiredExposures: []string{"canary"}})
+			d.Overrides = append(d.Overrides, VersionOverride{Version: "", Priority: 1, RequiredExposures: []string{"canary"}})
 		},
 	} {
 		invalid := cloneSelection(copy)
@@ -163,14 +163,14 @@ func TestSelectorPreservesEntityBoundsAndProtectsPolicyRead(t *testing.T) {
 	}
 }
 
-func TestSelectionPermitsDeterministicTiesAndDefaultTarget(t *testing.T) {
+func TestSelectionPermitsTiesAndDefaultTarget(t *testing.T) {
 	doc := SelectionDocument{Resource: ResourceFamily{Kind: "window", ID: "window://studio/example", Tenant: "tenant"}, Revision: 1, DefaultVersion: "working", Overrides: []VersionOverride{{Version: "1", Priority: 5, RequiredExposures: []string{"beta"}}, {Version: "1", Priority: 5, RequiredExposures: []string{"canary"}}, {Version: "working", Priority: 10, RequiredExposures: []string{"draft"}}}}
 	if _, err := NewStaticSelectionStore([]SelectionDocument{doc}); err != nil {
 		t.Fatalf("deterministic map rejected: %v", err)
 	}
 	doc.Overrides[1].Version = "2"
-	if _, err := NewStaticSelectionStore([]SelectionDocument{doc}); err == nil {
-		t.Fatal("differing target tie accepted")
+	if _, err := NewStaticSelectionStore([]SelectionDocument{doc}); err != nil {
+		t.Fatalf("equal-priority targets rejected: %v", err)
 	}
 }
 

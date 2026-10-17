@@ -57,8 +57,11 @@ type Rule struct {
 }
 
 type Policy struct {
-	Mode string `json:"mode"` // public or protected
-	Rule *Rule  `json:"rule,omitempty"`
+	// Priority orders revision-selection policies. Larger values are evaluated
+	// first; equal priorities are valid and the first evaluated match wins.
+	Priority int    `json:"priority,omitempty"`
+	Mode     string `json:"mode"` // public or protected
+	Rule     *Rule  `json:"rule,omitempty"`
 	// RequiredScopes are mandatory for a protected action, outside Rule's OR branches.
 	RequiredScopes []string `json:"requiredScopes,omitempty"`
 	// EntityType requires scoped authorization outside the rule's OR branches.

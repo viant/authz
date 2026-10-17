@@ -311,3 +311,30 @@ exposure within that condition. An entity rule with a concrete type and ID `*`
 matches any granted ID of that type. It does not grant extra entity IDs or bypass
 required entity scope, OAuth scopes, expiry or tenant checks. Other strings keep
 exact matching; partial glob patterns are not expanded.
+
+## Selecting content revisions by policy priority
+
+A resource selection graph contains content revisions, each with one selection
+policy. `Policy.Priority` controls evaluation order; content version numbers do
+not. Policies are evaluated from highest priority to lowest and stop at the first
+match. Equal priorities are allowed; whichever matching policy is evaluated first
+wins, with no tie-order guarantee.
+
+```json
+{
+  "resource": {"kind":"report","id":"example","tenant":"studio"},
+  "revision": 1,
+  "revisions": [
+    {"version":"1","policy":{"priority":50,"mode":"protected","rule":{"kind":"role","value":"diagnostic"}}},
+    {"version":"2","policy":{"priority":100,"mode":"protected","rule":{"kind":"role","value":"internal"}}}
+  ]
+}
+```
+
+A user with both roles selects content version `2`. An unmatched graph denies
+access. Selection does not replace authorization against the selected exact
+resource; denial there does not fall back to another version. Identity resolves
+once per operation, policy entity bounds are intersected with exact-resource
+bounds, and a supplied policy-revision pin must match the selected document.
+`NewStaticSelectionStore` compiles and sorts an immutable snapshot. Selection
+policies must not be combined with the legacy default/exposure-override mapping.
