@@ -164,3 +164,33 @@ func TestPolicyAdministrationSeparatesDeniedFromUnavailable(t *testing.T) {
 		t.Fatalf("policy write lookup outage classified as denial: %v", err)
 	}
 }
+
+func TestTrustedEditorCheckPreservesIdentityAndTenantValidation(t *testing.T) {
+	resource := Resource{Kind: "component", ID: "reader", Tenant: "one", Version: "1"}
+	for _, tc := range []struct {
+		name, tenant string
+		allow        bool
+		want         bool
+		called       bool
+	}{
+		{"member", "one", true, true, true},
+		{"nonmember", "one", false, false, true},
+		{"other tenant", "other", true, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			facts := Facts{Subject: "owner", Issuer: "trusted", Tenant: tc.tenant, ValidUntil: time.Now().Add(time.Minute)}
+			a := &Administration{Store: &creationStore{}, Provider: testProvider{facts}, EditorCheck: func(_ context.Context, got Facts, gotResource Resource) (bool, error) {
+				calls++
+				if got.Subject != "owner" || gotResource != resource {
+					t.Fatal("unverified editor arguments")
+				}
+				return tc.allow, nil
+			}}
+			allowed, err := a.CanReplace(context.Background(), resource)
+			if err != nil || allowed != tc.want || (calls > 0) != tc.called {
+				t.Fatalf("allowed=%v err=%v calls=%d", allowed, err, calls)
+			}
+		})
+	}
+}

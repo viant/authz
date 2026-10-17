@@ -17,12 +17,19 @@ type Creator interface {
 
 // Administration supplies deployment-owned policy administration permissions.
 // Every authenticated principal may read policies in its tenant; only the
-// configured roles may create/replace them. An empty EditorRoles denies writes.
+// configured roles or a trusted EditorCheck may create/replace them. With no
+// EditorCheck, an empty EditorRoles denies writes.
 // Protected resource execution remains a separate Service.Authorize decision.
 type Administration struct {
 	Store       Store
 	Provider    Provider
 	EditorRoles []string
+	// EditorCheck is an optional trusted host binding for initial policy creation
+	// and role-based replacement. It replaces EditorRoles, runs only after the
+	// provider's identity, lease and tenant have been verified, and must not trust
+	// request-supplied identity or groups. Management still governs replacement
+	// when configured.
+	EditorCheck func(context.Context, Facts, Resource) (bool, error)
 	// Management selects a checked manageAccess policy for replacement.
 	// When nil, the configured EditorRoles are the replacement authority.
 	// Creation still requires EditorRoles because no resource policy exists yet.
@@ -44,6 +51,16 @@ func (a *Administration) actor(ctx context.Context, resource Resource, write boo
 		return Facts{}, ErrDenied
 	}
 	if !write {
+		return facts, nil
+	}
+	if a.EditorCheck != nil {
+		allowed, err := a.EditorCheck(ctx, facts, resource)
+		if err != nil {
+			return Facts{}, err
+		}
+		if !allowed || ctx.Err() != nil {
+			return Facts{}, ErrDenied
+		}
 		return facts, nil
 	}
 	allowed := false
