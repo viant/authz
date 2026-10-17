@@ -1,0 +1,26 @@
+#package('policy/graph')
+#import('encoding/json')
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#setting($_ = $route('/_authz/policy-store/graph', 'GET'))
+#setting($_ = $internal(true))
+#setting($_ = $connector('authz'))
+#define($_ = $TenantId<string>(query/tenantId).Required().WithPredicate(0, 'equal', 'h', 'tenant_id'))
+#define($_ = $ResourceKind<string>(query/resourceKind).Required().WithPredicate(0, 'equal', 'h', 'resource_kind'))
+#define($_ = $ResourceId<string>(query/resourceId).Required().WithPredicate(0, 'equal', 'h', 'resource_id'))
+#define($_ = $Resources<[]*Resource>(output/view))
+
+SELECT resources.*, type(resources, 'Resource'),
+       revisions.*, type(revisions, 'ResourceRevision'),
+       policy.*, type(policy, 'RevisionPolicy'), optional(policy.revision),
+       CAST(resources.tenant_id AS string), CAST(resources.resource_kind AS string), CAST(resources.resource_id AS string),
+       CAST(revisions.tenant_id AS string), CAST(revisions.resource_kind AS string), CAST(revisions.resource_id AS string), CAST(revisions.resource_version AS string),
+       CAST(policy.tenant_id AS string), CAST(policy.resource_kind AS string), CAST(policy.resource_id AS string), CAST(policy.resource_version AS string),
+       CAST(policy.policies_json AS json.RawMessage), tag(policy.policies_json, 'sqlx:"policies_json,enc=JSON"')
+FROM (${embed:sql/resources.sql}) resources
+LEFT JOIN (${embed:sql/revisions.sql}) revisions
+ ON revisions.tenant_id=resources.tenant_id AND revisions.resource_kind=resources.resource_kind AND revisions.resource_id=resources.resource_id
+LEFT JOIN (${embed:sql/policy.sql}) policy
+ ON policy.tenant_id=revisions.tenant_id AND policy.resource_kind=revisions.resource_kind AND policy.resource_id=revisions.resource_id AND policy.resource_version=revisions.resource_version AND 1=1
+WHERE 1=1

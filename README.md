@@ -338,3 +338,28 @@ once per operation, policy entity bounds are intersected with exact-resource
 bounds, and a supplied policy-revision pin must match the selected document.
 `NewStaticSelectionStore` compiles and sorts an immutable snapshot. Selection
 policies must not be combined with the legacy default/exposure-override mapping.
+
+The `component/store/sql.RevisionSelections` adapter loads the graph with the
+internal Datly reader authored in `component/dql/authz/policy/graph/graph.dql`.
+The declared graph is `resources -> revisions -> policy`: one attached current
+policy document per content version. For the requested action, its policy owns
+priority and matching. Each view is read in a batch; there is no query per version.
+Graph data is read fresh, while Datly runtime compilation is reused. A changed
+policy head changes mapping identity, and a selected policy-history revision is
+pinned so a newer policy cannot silently replace the graph's chosen policy.
+
+```go
+store := &access.Store{DB: db}
+selector := authz.Selector{
+    Mappings: &access.RevisionSelections{Store: store, Action: "execute"},
+    Service: &authz.Service{Store: store, Provider: verifiedIdentity},
+}
+selected, err := selector.Authorize(ctx, authz.SelectionRequest{
+    Resource: authz.ResourceFamily{Kind: "report", ID: "example", Tenant: "studio"},
+    Action: "execute",
+})
+```
+
+`access` above is `github.com/viant/authz/component/store/sql`. The caller owns
+`store.Close(ctx)` and enforcement of the returned exact resource/entity bounds.
+The graph reader is internal and has no public HTTP/MCP exposure.

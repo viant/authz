@@ -15,6 +15,7 @@ import (
 	"time"
 
 	acl "github.com/viant/authz"
+	policygraph "github.com/viant/authz/component/policy/graph"
 	policyreader "github.com/viant/authz/component/policy/reader"
 	policywriter "github.com/viant/authz/component/policy/writer"
 	"github.com/viant/bindly/locator"
@@ -46,6 +47,7 @@ type Store struct {
 
 	mu      sync.Mutex
 	runtime *druntime.Runtime
+	graph   dexec.ComponentTarget
 	read    dexec.ComponentTarget
 	write   dexec.ComponentTarget
 }
@@ -110,6 +112,26 @@ func (s *Store) components() (*druntime.Runtime, error) {
 	if err := sqlComponent.RegisterConnector(studioConnector, s.DB); err != nil {
 		return nil, err
 	}
+	if err := resources.Register(policygraph.GraphDatlyResourceNamespace, policygraph.GraphDatlyResources); err != nil {
+		return nil, err
+	}
+	graphComponent, err := resolveComponent(reflect.TypeFor[policygraph.GraphComponent](), "graph", reflect.TypeFor[policygraph.Input](), reflect.TypeFor[policygraph.Output]())
+	if err != nil {
+		return nil, err
+	}
+	graphArtifact, err := bootstrap.BuildArtifact(bootstrap.ArtifactInput{Component: graphComponent, InputType: reflect.TypeFor[policygraph.Input](), OutputType: reflect.TypeFor[policygraph.Output](), Resources: resources})
+	if err != nil {
+		return nil, err
+	}
+	graphExecution, err := graphArtifact.ReaderCompilation().NewExecution(bootstrap.ReaderRuntimeConfig{SQL: sqlComponent})
+	if err != nil {
+		return nil, err
+	}
+	graphRegistration, err := graphArtifact.Registration(registry.RegisteredComponent{Reader: graphExecution})
+	if err != nil {
+		return nil, err
+	}
+	s.graph = componentTarget(graphRegistration.Component)
 	readerComponent, err := resolveComponent(reflect.TypeOf(policyreader.PolicyComponent{}), "reader", reflect.TypeOf(policyreader.Input{}), reflect.TypeOf(policyreader.Output{}))
 	if err != nil {
 		return nil, err
@@ -144,7 +166,7 @@ func (s *Store) components() (*druntime.Runtime, error) {
 	}
 	writerRegistration := &registry.RegisteredComponent{Component: writerArtifact.Component, Input: writerArtifact.Input, Output: writerArtifact.Output, OutputType: reflect.TypeOf(policywriter.Output{}), Handler: handler, Providers: []locator.Provider{views}, DataSource: dml.Source{DB: s.DB, Tx: s.transaction}}
 	writerRegistration.Capabilities.Connector = sqlComponent
-	runtime, err := druntime.NewRuntime([]*registry.RegisteredComponent{readerRegistration, writerRegistration}, druntime.WithResources(resources))
+	runtime, err := druntime.NewRuntime([]*registry.RegisteredComponent{readerRegistration, writerRegistration, graphRegistration}, druntime.WithResources(resources))
 	if err != nil {
 		return nil, err
 	}

@@ -5,7 +5,7 @@ go 1.25.8
 require (
 	github.com/mattn/go-sqlite3 v1.14.16
 	github.com/stretchr/testify v1.11.1
-	github.com/viant/authz v0.0.0-20261013220326-83350c91a2e0
+	github.com/viant/authz v0.0.0-20261017194718-15366eed9f87
 	github.com/viant/datly v1.1.1-0.20261014180358-3d6daf6db5e2
 	github.com/viant/mcp-protocol v0.19.1-0.20261008202502-046707df5ed9
 	github.com/viant/scy v0.35.1-0.20260914041206-699e6c909726
