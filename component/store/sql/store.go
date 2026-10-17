@@ -173,7 +173,7 @@ func (s *Store) components() (*druntime.Runtime, error) {
 	s.read = componentTarget(readerRegistration.Component)
 	s.write = componentTarget(writerRegistration.Component)
 	s.runtime = runtime
-	if s.transaction == nil {
+	if s.transaction == nil && readerRegistration.Component.Settings != nil && readerRegistration.Component.Settings.Cache != nil && readerRegistration.Component.Settings.Cache.Enabled {
 		nativePolicyReaders.Store(s, s.DB)
 	}
 	return runtime, nil

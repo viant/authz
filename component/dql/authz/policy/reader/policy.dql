@@ -8,7 +8,6 @@
 #setting($_ = $route('/_authz/policy-store/read', 'GET'))
 #setting($_ = $internal(true))
 #setting($_ = $connector('authz'))
-#setting($_ = $cache('policy', '60s').WithProvider('afs').WithLocation('mem://localhost/authz/policy-reader'))
 #setting($_ = $sql_dest('resource_policy', 'sql/read.sql'))
 
 #define($_ = $TenantId<string>(query/tenantId).Required().WithPredicate(0, 'equal', 'h', 'tenant_id'))

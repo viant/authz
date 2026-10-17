@@ -363,3 +363,7 @@ selected, err := selector.Authorize(ctx, authz.SelectionRequest{
 `access` above is `github.com/viant/authz/component/store/sql`. The caller owns
 `store.Close(ctx)` and enforcement of the returned exact resource/entity bounds.
 The graph reader is internal and has no public HTTP/MCP exposure.
+
+Mutable current-policy head reads are uncached. Compiled Datly runtimes remain
+reused, while policy replacement is visible immediately across HTTP and MCP.
+Caching immutable policy revisions is separate from caching the current head.
