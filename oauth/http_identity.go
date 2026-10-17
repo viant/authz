@@ -136,10 +136,16 @@ func newHTTPIdentity(c HTTPIdentityConfig) (*HTTPIdentityProvider, error) {
 			return nil, fmt.Errorf("invalid identity query key")
 		}
 	}
-	key, e := NewJWKSKeyfunc(JWKSConfig{URL: c.JWKSURL, RefreshInterval: refresh, Client: c.Client})
-	if e != nil {
-		return nil, e
+	key := c.Keyfunc
+	if key == nil {
+		key, e = NewJWKSKeyfunc(JWKSConfig{URL: c.JWKSURL, RefreshInterval: refresh, Client: c.Client})
+		if e != nil {
+			return nil, e
+		}
+	} else if c.JWKSURL != "" {
+		return nil, fmt.Errorf("injected identity verifier cannot be combined with JWKS URL")
 	}
+
 	verifier := Config{Issuer: c.Issuer, Audience: c.Audience, Algorithms: append([]string(nil), c.Algorithms...), Keyfunc: key}
 	if _, e = New(verifier); e != nil {
 		return nil, e

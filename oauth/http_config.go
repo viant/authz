@@ -2,6 +2,7 @@ package oauth
 
 import (
 	"context"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/viant/authz"
 	"github.com/viant/authz/gating"
 	"net/http"
@@ -11,6 +12,10 @@ import (
 // HTTPIdentityConfig is operator-owned. Mapping paths select fields from the
 // independently verified JWT and the configured identity endpoint, never UI input.
 type HTTPIdentityConfig struct {
+	// Keyfunc is a trusted process binding, never decoded from an identity
+	// document. Embedders can reuse the host verifier instead of configuring JWKS twice.
+	Keyfunc jwt.Keyfunc `json:"-"`
+
 	Kind                    string              `json:"kind"`
 	Issuer                  string              `json:"issuer"`
 	Audience                string              `json:"audience"`
