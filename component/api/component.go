@@ -203,9 +203,15 @@ func (p subjectProvider) Resolve(ctx context.Context) (authz.Facts, error) {
 	return facts, nil
 }
 func failure(code int, message string, cause error) error {
+	kind := map[int]string{400: "invalid", 401: "unauthorized", 403: "forbidden", 409: "conflict", 503: "unavailable"}[code]
+	if kind == "" {
+		kind = "internal"
+	}
 	return &xresponse.Error{Code: code, Payload: struct {
 		Message string `json:"message"`
-	}{message}, Cause: cause}
+		Status  int    `json:"status"`
+		Code    string `json:"code"`
+	}{message, code, kind}, Cause: cause}
 }
 func publicError(err error) error {
 	if errors.Is(err, authz.ErrConflict) {
