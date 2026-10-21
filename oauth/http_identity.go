@@ -263,15 +263,15 @@ func (p *HTTPIdentityProvider) readProfileRemote(ctx context.Context, claims *jw
 	if tenant == "" {
 		return httpProfile{}, authz.ErrDenied
 	}
-	roles, e := stringsAt(raw, m.Roles)
+	roles, e := optionalIdentityStringsAt(raw, m.Roles)
 	if e != nil {
 		return httpProfile{}, e
 	}
-	exposures, e := stringsAt(raw, m.Exposures)
+	exposures, e := optionalIdentityStringsAt(raw, m.Exposures)
 	if e != nil {
 		return httpProfile{}, e
 	}
-	groups, e := stringsAt(raw, m.MembershipGroups)
+	groups, e := optionalIdentityStringsAt(raw, m.MembershipGroups)
 	if e != nil {
 		return httpProfile{}, e
 	}
@@ -432,4 +432,20 @@ func (p *HTTPIdentityProvider) PermissionWithLease(ctx context.Context, expected
 		return false, time.Time{}, authz.ErrDenied
 	}
 	return allowed, minHTTPTime(expected.ValidUntil, minHTTPTime(before.Facts.ValidUntil, after.Facts.ValidUntil)), nil
+}
+
+// Missing optional grants mean no grants, never an inferred role. Present but
+// malformed collections still fail closed. Identity bindings stay mandatory.
+func optionalIdentityStringsAt(raw json.RawMessage, path string) ([]string, error) {
+	if path == "" {
+		return nil, nil
+	}
+	_, found, err := rawHTTPPath(raw, path)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, nil
+	}
+	return stringsAt(raw, path)
 }

@@ -48,3 +48,5 @@ Tests use synthetic keys/HTTP endpoints and domain-neutral document requirements
 Evaluation endpoints accept their own explicit `sourceClockSkew` (zero to five seconds). Omission keeps strict time validation. Configure each endpoint independently; identity tolerance is not inherited. Tolerance shortens the returned source/freshness deadline and never revives an expired evaluation or extends the held identity lease.
 
 `CopyDecision(requestContext, scopedContext)` carries only the provider's opaque active decision marker while preserving the caller's request values. The bearer must match exactly; missing, foreign, canceled, expired, closed, conflicting, and metadata-only scopes fail. Copies share the original lease and closure. Use separate read phases and finish the PRE phase before dispatch; create a fresh POST scope before result release. The helper does not establish a cross-request authorization cache.
+
+Absent optional role, exposure and membership collections mean empty grants. Present malformed collections remain errors. Subject/account bindings and token verification remain required.

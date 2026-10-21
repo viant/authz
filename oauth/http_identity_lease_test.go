@@ -30,3 +30,15 @@ func TestIdentityDefaultHourLeaseRemainsBoundedByTokenExpiry(t *testing.T) {
 		t.Fatal("required authority lease bypassed")
 	}
 }
+
+func TestMissingOptionalIdentityGrantsRemainEmpty(t *testing.T) {
+	values, err := optionalIdentityStringsAt(json.RawMessage(`{"info":{"subject":"owner"}}`), "info.roles")
+	if err != nil || len(values) != 0 {
+		t.Fatalf("missing roles created grants or denied identity: %v %v", values, err)
+	}
+	for _, raw := range []string{`{"info":{"roles":null}}`, `{"info":{"roles":"admin"}}`, `{"info":{"roles":[1]}}`} {
+		if _, err := optionalIdentityStringsAt(json.RawMessage(raw), "info.roles"); err == nil {
+			t.Fatalf("malformed role collection accepted: %s", raw)
+		}
+	}
+}
