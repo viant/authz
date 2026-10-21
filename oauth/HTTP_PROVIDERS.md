@@ -15,7 +15,7 @@ A neutral mapping might use:
   "userInfoUrl": "https://identity.example/userinfo",
   "jwksUrl": "https://identity.example/jwks",
   "jwksRefreshInterval": "1m",
-  "factLease": "15m",
+  "factLease": "1h",
   "userInfoCacheTTL": "15m",
   "userInfoCacheMaxEntries": 1024,
   "tenantByAccount": {"team-a": "workspace-a"},
@@ -35,7 +35,7 @@ The signed JWT establishes subject and any configured user/account claim. Userin
 
 Userinfo profiles are cached in process for fifteen minutes by default. `userInfoCacheTTL` accepts zero through fifteen minutes; `0s` disables caching and retains strict fresh scope-finish reconciliation. `userInfoCacheMaxEntries` defaults to 1024 (maximum 65536); concurrent misses for one identity share one request. Entries and concurrent requests are bounded. Failed refreshes are never cached and never release stale profiles. Each returned profile is deeply copied.
 
-Cache identity includes the configured provider/mapping, verified canonical issuer and subject, signed account/user, resolved tenant, and credential scope/client/token class. A signed account mapping is required when caching is enabled. Every hit locally verifies the JWT and its signed identity, so renewed valid tokens can reuse the same profile without using bearer text as the identity key. Expiry is the earliest of the configured cache TTL, identity `factLease` (maximum fifteen minutes), JWT expiry, and provider-asserted lease. A short original token or provider lease can therefore require an earlier refresh. Role/profile revocations become visible at that expiry; this policy intentionally permits retained profile facts until then.
+Cache identity includes the configured provider/mapping, verified canonical issuer and subject, signed account/user, resolved tenant, and credential scope/client/token class. A signed account mapping is required when caching is enabled. Every hit locally verifies the JWT and its signed identity, so renewed valid tokens can reuse the same profile without using bearer text as the identity key. Expiry is the earliest of the configured cache TTL, identity `factLease` (default and maximum one hour), JWT expiry, and provider-asserted lease. A short original token or provider lease can therefore require an earlier refresh. Role/profile revocations become visible at that expiry; this policy intentionally permits retained profile facts until then.
 
 Decision/metadata scopes retain their original deadline. Enabled-cache scope finish revalidates the held credential and profile deadline without forcing another userinfo request. Closed snapshots cannot be reused. Execution and writes must use the returned `WithoutDecision`/`WithoutMetadataRead` context; those paths still use the same global userinfo cache. Business permission decisions are not cached: producer authorization and HTTP evaluation run for each operation.
 

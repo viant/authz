@@ -64,9 +64,12 @@ func newHTTPIdentity(c HTTPIdentityConfig) (*HTTPIdentityProvider, error) {
 	if _, e := httpEndpoint(c.UserInfoURL); e != nil {
 		return nil, e
 	}
+	if c.FactLease == "" {
+		c.FactLease = "1h"
+	}
 	lease, e := time.ParseDuration(c.FactLease)
-	if e != nil || lease <= 0 || lease > 15*time.Minute {
-		return nil, fmt.Errorf("factLease must be positive and at most fifteen minutes")
+	if e != nil || lease <= 0 || lease > time.Hour {
+		return nil, fmt.Errorf("factLease must be positive and at most one hour")
 	}
 	cacheTTL := 15 * time.Minute
 	if c.UserInfoCacheTTL != "" {
@@ -341,7 +344,7 @@ func (p *HTTPIdentityProvider) readProfileRemote(ctx context.Context, claims *jw
 		}
 		projection[name] = value
 	}
-	deadline, e := deadlineHTTPWithLimit(started, p.now(), claims.ExpiresAt.Time, p.lease, p.skew, raw, m.EvaluatedAt, m.ValidUntil, m.RequireSourceLease, 15*time.Minute)
+	deadline, e := deadlineHTTPWithLimit(started, p.now(), claims.ExpiresAt.Time, p.lease, p.skew, raw, m.EvaluatedAt, m.ValidUntil, m.RequireSourceLease, time.Hour)
 	if e != nil {
 		return httpProfile{}, e
 	}

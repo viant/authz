@@ -371,7 +371,7 @@ func TestUserInfoCacheConfigurationBoundsAndDefault(t *testing.T) {
 		func(c *HTTPIdentityConfig) { c.UserInfoCacheTTL = "16m" },
 		func(c *HTTPIdentityConfig) { c.UserInfoCacheTTL = "-1s" },
 		func(c *HTTPIdentityConfig) { c.UserInfoCacheMaxEntries = 65537 },
-		func(c *HTTPIdentityConfig) { c.FactLease = "16m" },
+		func(c *HTTPIdentityConfig) { c.FactLease = "61m" },
 		func(c *HTTPIdentityConfig) { c.Mapping.JWTAccountID = "" },
 	} {
 		c := base
