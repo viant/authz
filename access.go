@@ -33,7 +33,9 @@ type Facts struct {
 	Tenant            string             `json:"tenant"`
 	Issuer            string             `json:"issuer"`
 	Roles             []string           `json:"roles"`
-	Exposures         []string           `json:"exposures"`
+	// MembershipGroups are verified membership groups, distinct from application roles.
+	MembershipGroups []string `json:"membershipGroups,omitempty"`
+	Exposures        []string `json:"exposures"`
 	// GrantedScopes are OAuth scopes from a verified credential, not entity bounds.
 	GrantedScopes []string `json:"grantedScopes,omitempty"`
 	// EntityGroups is the canonical typed authorization fact.
@@ -50,13 +52,20 @@ type Provider interface {
 }
 
 type Rule struct {
-	Kind   string  `json:"kind"` // subject, role, exposure, entity, all, any
+	Kind   string  `json:"kind"` // subject, role, group, exposure, entity, all, any
 	Value  string  `json:"value,omitempty"`
 	Entity *Entity `json:"entity,omitempty"`
 	Rules  []Rule  `json:"rules,omitempty"`
 }
 
 type Policy struct {
+	// Definition is non-executable metadata, valid only at the reserved action
+	// of a reusable policy resource. It is stored in existing versioned JSON.
+	Definition *NamedDefinition `json:"definition,omitempty"`
+	// Named is valid only with mode named and narrows the optional local rule
+	// using the current head of a reusable policy.
+	// Unresolved references are never executable by Evaluate.
+	Named *NamedReference `json:"named,omitempty"`
 	// Priority orders revision-selection policies. Larger values are evaluated
 	// first; equal priorities are valid and the first evaluated match wins.
 	Priority int    `json:"priority,omitempty"`
@@ -83,12 +92,25 @@ type Decision struct {
 // Evaluate checks one explicitly configured action. Callers resolve policies
 // from trusted storage and compose dependency decisions separately.
 func Evaluate(req Request, policies map[string]Policy, facts Facts, now time.Time) (Decision, error) {
+	return EvaluatePrepared(req, policies, PrepareFacts(facts), now)
+}
+
+// EvaluatePrepared uses the same immutable fact sets for every rule and policy.
+// It preserves Evaluate's semantics without rebuilding role/exposure maps.
+func EvaluatePrepared(req Request, policies map[string]Policy, prepared *PreparedFacts, now time.Time) (Decision, error) {
+	if prepared == nil {
+		return Decision{}, ErrDenied
+	}
+	facts := prepared.facts
 	deny := func() (Decision, error) { return Decision{}, ErrDenied }
 	if req.Resource.Kind == "" || req.Resource.ID == "" || req.Resource.Tenant == "" || req.Action == "" {
 		return deny()
 	}
 	p, ok := PolicyForAction(policies, req.Action)
 	if !ok {
+		return deny()
+	}
+	if p.Named != nil {
 		return deny()
 	}
 	if req.Resource.Tenant != "*" && req.Resource.Tenant != facts.Tenant {
@@ -106,12 +128,11 @@ func Evaluate(req Request, policies map[string]Policy, facts Facts, now time.Tim
 			return deny()
 		}
 	case "protected":
-		flat, err := facts.FlatEntities()
-		if err != nil {
+		if !prepared.entitiesValid {
 			return deny()
 		}
-		facts.Entities = flat
-		if facts.Subject == "" || facts.Tenant == "" || facts.Issuer == "" || !facts.ValidUntil.After(now) || p.Rule == nil || !valid(*p.Rule, 0) || !matches(*p.Rule, facts) || !hasGrantedScopes(facts.GrantedScopes, p.RequiredScopes) {
+		facts.Entities = prepared.entities
+		if facts.Subject == "" || facts.Tenant == "" || facts.Issuer == "" || !facts.ValidUntil.After(now) || p.Rule == nil || !valid(*p.Rule, 0) || !matchesPrepared(*p.Rule, prepared) || !prepared.hasScopes(p.RequiredScopes) {
 			return deny()
 		}
 	default:
@@ -165,44 +186,39 @@ func valid(r Rule, depth int) bool {
 		return true
 	case "entity":
 		return r.Value == "" && len(r.Rules) == 0 && r.Entity != nil && r.Entity.Type != "" && r.Entity.ID != ""
-	case "subject", "role", "exposure":
+	case "subject", "role", "exposure", "group":
 		return r.Value != "" && r.Entity == nil && len(r.Rules) == 0
 	}
 	return false
 }
 
-func matches(r Rule, f Facts) bool {
-	contains := func(values []string) bool {
-		for _, v := range values {
-			if v != "" && (v == r.Value || r.Value == "*") {
-				return true
-			}
-		}
-		return false
-	}
+func matchesPrepared(r Rule, prepared *PreparedFacts) bool {
+	f := prepared.facts
 	switch r.Kind {
 	case "subject":
 		return f.Subject != "" && (f.Subject == r.Value || r.Value == "*")
 	case "role":
-		return contains(f.Roles)
+		return r.Value == "*" && len(prepared.roles) > 0 || prepared.HasRoleLiteral(r.Value)
+	case "group":
+		return prepared.HasGroup(r.Value)
 	case "exposure":
-		return contains(f.Exposures)
+		return r.Value == "*" && len(prepared.exposures) > 0 || prepared.HasExposureLiteral(r.Value)
 	case "entity":
-		for _, e := range f.Entities {
+		for _, e := range prepared.entities {
 			if e.Type == r.Entity.Type && e.ID != "" && (e.ID == r.Entity.ID || r.Entity.ID == "*") {
 				return true
 			}
 		}
 	case "all":
 		for _, c := range r.Rules {
-			if !matches(c, f) {
+			if !matchesPrepared(c, prepared) {
 				return false
 			}
 		}
 		return true
 	case "any":
 		for _, c := range r.Rules {
-			if matches(c, f) {
+			if matchesPrepared(c, prepared) {
 				return true
 			}
 		}

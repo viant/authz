@@ -12,11 +12,12 @@ type Choice struct {
 }
 
 type Choices struct {
-	Subjects    []Choice `json:"subject"`
-	Roles       []Choice `json:"role"`
-	Exposures   []Choice `json:"exposure"`
-	Entities    []Choice `json:"entity"`
-	EntityTypes []string `json:"entityTypes"`
+	Subjects         []Choice `json:"subject"`
+	Roles            []Choice `json:"role"`
+	MembershipGroups []Choice `json:"group"`
+	Exposures        []Choice `json:"exposure"`
+	Entities         []Choice `json:"entity"`
+	EntityTypes      []string `json:"entityTypes"`
 }
 
 // Directory optionally supplies a tenant-scoped administrative catalog from the
@@ -117,6 +118,9 @@ func (s *Service) editorContextWithFacts(ctx context.Context, r Resource, facts 
 		return result, nil
 	}
 	result.Choices.Subjects = []Choice{{ID: facts.Subject, Label: facts.Subject}}
+	for _, group := range facts.MembershipGroups {
+		result.Choices.MembershipGroups = append(result.Choices.MembershipGroups, Choice{ID: group, Label: group})
+	}
 	for _, role := range facts.Roles {
 		result.Choices.Roles = append(result.Choices.Roles, Choice{ID: role, Label: role})
 	}

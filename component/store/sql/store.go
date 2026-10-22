@@ -258,10 +258,8 @@ func (s *Store) activate(ctx context.Context, d acl.Document, expected int64, ac
 	if r.Tenant == "" || r.Kind == "" || r.ID == "" || r.Version == "" || actor == "" || len(d.Policies) == 0 {
 		return acl.Document{}, acl.ErrDenied
 	}
-	for action, p := range d.Policies {
-		if err := acl.ValidatePolicy(action, p); err != nil {
-			return acl.Document{}, err
-		}
+	if err := acl.ValidateDocument(d); err != nil {
+		return acl.Document{}, err
 	}
 	body, err := json.Marshal(d.Policies)
 	if err != nil {

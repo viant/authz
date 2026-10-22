@@ -34,15 +34,19 @@ func (s *Service) AuthorizeSelectionWithStatus(ctx context.Context, request Requ
 }
 
 func (s *Service) evaluateSelected(ctx context.Context, request Request, doc Document, facts Facts) (Decision, Facts, error) {
+	return s.evaluateSelectedPrepared(ctx, request, doc, facts, PrepareFacts(facts))
+}
+
+func (s *Service) evaluateSelectedPrepared(ctx context.Context, request Request, doc Document, facts Facts, prepared *PreparedFacts) (Decision, Facts, error) {
 	policy, _ := PolicyForAction(doc.Policies, request.Action)
 	if s.SelectedScopes == nil || policy.Mode != "protected" || policy.EntityType == "" || request.Selection == nil {
-		decision, err := Evaluate(request, doc.Policies, facts, time.Now())
+		decision, err := EvaluatePrepared(request, doc.Policies, prepared, time.Now())
 		if err != nil && policy.EntityType != "" && request.Selection != nil {
 			aclPolicy := policy
 			aclPolicy.EntityType = ""
 			aclRequest := request
 			aclRequest.Selection = nil
-			if _, aclErr := Evaluate(aclRequest, map[string]Policy{request.Action: aclPolicy}, facts, time.Now()); aclErr == nil {
+			if _, aclErr := EvaluatePrepared(aclRequest, map[string]Policy{request.Action: aclPolicy}, prepared, time.Now()); aclErr == nil {
 				err = ErrSelectionDenied
 			}
 		}
@@ -66,7 +70,7 @@ func (s *Service) evaluateSelected(ctx context.Context, request Request, doc Doc
 	aclPolicy.EntityType = ""
 	aclRequest := request
 	aclRequest.Selection = nil
-	if _, err := Evaluate(aclRequest, map[string]Policy{request.Action: aclPolicy}, facts, time.Now()); err != nil {
+	if _, err := EvaluatePrepared(aclRequest, map[string]Policy{request.Action: aclPolicy}, prepared, time.Now()); err != nil {
 		return Decision{}, Facts{}, ErrDenied
 	}
 	providerSelection := append([]Entity(nil), selection...)

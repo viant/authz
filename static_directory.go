@@ -82,7 +82,7 @@ func validPolicyChoices(value Choices) bool {
 		}
 		return true
 	}
-	if !seen(value.Subjects, false) || !seen(value.Roles, false) || !seen(value.Exposures, false) || !seen(value.Entities, true) {
+	if !seen(value.Subjects, false) || !seen(value.Roles, false) || !seen(value.MembershipGroups, false) || !seen(value.Exposures, false) || !seen(value.Entities, true) {
 		return false
 	}
 	types := map[string]bool{}
@@ -107,5 +107,5 @@ func clonePolicyChoices(input Choices) Choices {
 		}
 		return result
 	}
-	return Choices{Subjects: clone(input.Subjects), Roles: clone(input.Roles), Exposures: clone(input.Exposures), Entities: clone(input.Entities), EntityTypes: append([]string(nil), input.EntityTypes...)}
+	return Choices{Subjects: clone(input.Subjects), Roles: clone(input.Roles), MembershipGroups: clone(input.MembershipGroups), Exposures: clone(input.Exposures), Entities: clone(input.Entities), EntityTypes: append([]string(nil), input.EntityTypes...)}
 }

@@ -228,15 +228,21 @@ func (e *Evaluator) evaluate(ctx context.Context, req Request, withACL bool) (De
 		}
 	}
 	r := doc.Requirements
+	// Prepare verified identity membership once for all requirement predicates.
+	// A literal '*' remains a literal membership value, not a wildcard grant.
+	prepared := authz.PrepareFacts(p.Facts)
 	for _, exposure := range r.RequiredExposures {
-		if !contains(p.Facts.Exposures, exposure) {
+		if !prepared.HasExposureLiteral(exposure) {
 			return deny("featureDisabled")
 		}
 	}
 	if len(r.AllowedRoles) != 0 {
 		matched := false
 		for _, role := range r.AllowedRoles {
-			matched = matched || contains(p.Facts.Roles, role)
+			matched = prepared.HasRoleLiteral(role)
+			if matched {
+				break
+			}
 		}
 		if !matched {
 			return deny("roleDenied")
@@ -427,15 +433,6 @@ func CanonicalSelection(input []authz.Entity) ([]authz.Entity, string, error) {
 	raw, _ := json.Marshal(unique)
 	sum := sha256.Sum256(raw)
 	return unique, hex.EncodeToString(sum[:]), nil
-}
-
-func contains(values []string, sought string) bool {
-	for _, value := range values {
-		if value == sought {
-			return true
-		}
-	}
-	return false
 }
 
 func validProviderDecision(d Decision, r ProviderRequest, now time.Time) bool {

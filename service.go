@@ -43,10 +43,14 @@ type DecisionProvider interface {
 }
 
 func (s *Service) evaluate(ctx context.Context, request Request, doc Document, facts Facts) (Decision, error) {
+	return s.evaluatePrepared(ctx, request, doc, facts, PrepareFacts(facts))
+}
+
+func (s *Service) evaluatePrepared(ctx context.Context, request Request, doc Document, facts Facts, prepared *PreparedFacts) (Decision, error) {
 	if ctx.Err() != nil {
 		return Decision{}, ErrDenied
 	}
-	local, _, err := s.evaluateSelected(ctx, request, doc, facts)
+	local, _, err := s.evaluateSelectedPrepared(ctx, request, doc, facts, prepared)
 	policy, _ := PolicyForAction(doc.Policies, request.Action)
 	if err != nil || s.Decisions == nil || policy.Mode == "public" {
 		return local, err
@@ -246,13 +250,8 @@ func (s *Service) Replace(ctx context.Context, candidate Document) (Document, er
 	if current.Revision != candidate.Revision {
 		return Document{}, ErrConflict
 	}
-	if len(candidate.Policies) == 0 {
-		return Document{}, ErrDenied
-	}
-	for action, policy := range candidate.Policies {
-		if err = ValidatePolicy(action, policy); err != nil {
-			return Document{}, err
-		}
+	if err = ValidateDocument(candidate); err != nil {
+		return Document{}, err
 	}
 	if err = ctx.Err(); err != nil {
 		return Document{}, err
@@ -264,21 +263,34 @@ func ValidatePolicy(action string, p Policy) error {
 	if action == "" {
 		return ErrDenied
 	}
+	if p.Mode == "definition" {
+		if action == NamedDefinitionAction && p.Definition != nil && p.Named == nil && p.Rule == nil && p.EntityType == "" && len(p.RequiredScopes) == 0 && p.Priority == 0 {
+			return p.Definition.Validate()
+		}
+		return ErrDenied
+	}
+	if p.Definition != nil || action == NamedDefinitionAction {
+		return ErrDenied
+	}
 	switch p.Mode {
 	case "deny":
-		if p.Rule == nil && p.EntityType == "" && len(p.RequiredScopes) == 0 {
+		if p.Named == nil && p.Rule == nil && p.EntityType == "" && len(p.RequiredScopes) == 0 {
 			return nil
 		}
 	case "public":
-		if p.Rule != nil || p.EntityType != "" || len(p.RequiredScopes) != 0 {
+		if p.Named != nil || p.Rule != nil || p.EntityType != "" || len(p.RequiredScopes) != 0 {
 			return ErrDenied
 		}
 		switch action {
 		case "discover", "describe", "execute", "retrieve":
 			return nil
 		}
+	case "named":
+		if p.Named != nil && p.Named.Valid() && (p.Rule == nil || valid(*p.Rule, 0)) && validScopeNames(p.RequiredScopes) {
+			return nil
+		}
 	case "protected":
-		if p.Rule != nil && valid(*p.Rule, 0) && validScopeNames(p.RequiredScopes) {
+		if p.Named == nil && p.Rule != nil && valid(*p.Rule, 0) && validScopeNames(p.RequiredScopes) {
 			return nil
 		}
 	}

@@ -157,7 +157,7 @@ func TestSDKComponentsHTTPAndMCP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(registrations) != 10 {
+	if len(registrations) != 11 {
 		t.Fatalf("registered %d SDK endpoints", len(registrations))
 	}
 	linked, err := LinkedRegistrations(services, codecs)

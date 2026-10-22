@@ -13,6 +13,9 @@ type StaticStore struct{ documents map[Resource]Document }
 func NewStaticStore(documents []Document) (*StaticStore, error) {
 	store := &StaticStore{documents: make(map[Resource]Document, len(documents))}
 	for _, doc := range documents {
+		if err := ValidateDocument(doc); err != nil {
+			return nil, err
+		}
 		if doc.Resource.Kind == "" || doc.Resource.ID == "" || doc.Resource.Version == "" || doc.Resource.Tenant == "" || doc.Revision < 1 || len(doc.Policies) == 0 {
 			return nil, fmt.Errorf("invalid static policy document")
 		}
@@ -47,6 +50,15 @@ func (*StaticStore) Replace(context.Context, Document, int64, string) (Document,
 func cloneStaticDocument(doc Document) Document {
 	policies := make(map[string]Policy, len(doc.Policies))
 	for action, policy := range doc.Policies {
+		if policy.Definition != nil {
+			definition := *policy.Definition
+			definition.Policies = cloneStaticDocument(Document{Policies: definition.Policies}).Policies
+			policy.Definition = &definition
+		}
+		if policy.Named != nil {
+			ref := *policy.Named
+			policy.Named = &ref
+		}
 		policy.RequiredScopes = append([]string(nil), policy.RequiredScopes...)
 		if policy.Rule != nil {
 			rule := cloneStaticRule(*policy.Rule)

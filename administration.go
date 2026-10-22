@@ -97,10 +97,21 @@ func (a *Administration) Get(ctx context.Context, resource Resource) (Document, 
 }
 
 func validateDocument(doc Document) error {
+	return ValidateDocument(doc)
+}
+
+// ValidateDocument enforces resource-level reserved metadata boundaries.
+func ValidateDocument(doc Document) error {
 	if len(doc.Policies) == 0 {
 		return ErrDenied
 	}
 	for action, policy := range doc.Policies {
+		if policy.Named != nil && policy.Named.Resource.Tenant != doc.Resource.Tenant {
+			return ErrDenied
+		}
+		if policy.Definition != nil && (doc.Resource.Kind != "policy" || doc.Resource.Tenant == "*") {
+			return ErrDenied
+		}
 		if err := ValidatePolicy(action, policy); err != nil {
 			return err
 		}
@@ -154,6 +165,23 @@ func (a *Administration) Replace(ctx context.Context, doc Document) (Document, e
 	if err = validateDocument(doc); err != nil {
 		return Document{}, err
 	}
+	// A newly selected reference must still be the revision the editor reviewed.
+	// Existing assignments follow newer heads without being rewritten.
+	for action, policy := range doc.Policies {
+		if policy.Named == nil || reflect.DeepEqual(policy.Named, current.Policies[action].Named) {
+			continue
+		}
+		target, readErr := a.Store.Get(ctx, policy.Named.Resource)
+		if readErr != nil {
+			return Document{}, administrationStoreError(readErr)
+		}
+		if target.Resource != policy.Named.Resource || target.Revision != policy.Named.Revision {
+			return Document{}, ErrConflict
+		}
+		if _, definitionErr := Definition(target); definitionErr != nil {
+			return Document{}, definitionErr
+		}
+	}
 	if ctx.Err() != nil || !facts.ValidUntil.After(time.Now()) {
 		return Document{}, ErrDenied
 	}
@@ -206,7 +234,7 @@ func (a *Administration) replacementActor(ctx context.Context, resource Resource
 
 func sameManagementFacts(a, b Facts) bool {
 	return a.Subject == b.Subject && a.Issuer == b.Issuer && a.Tenant == b.Tenant && a.AuthorityRevision == b.AuthorityRevision &&
-		reflect.DeepEqual(a.Roles, b.Roles) && reflect.DeepEqual(a.Exposures, b.Exposures) &&
+		reflect.DeepEqual(a.Roles, b.Roles) && reflect.DeepEqual(a.MembershipGroups, b.MembershipGroups) && reflect.DeepEqual(a.Exposures, b.Exposures) &&
 		reflect.DeepEqual(a.EntityGroups, b.EntityGroups) && reflect.DeepEqual(a.Entities, b.Entities) &&
 		reflect.DeepEqual(a.EntityPermissions, b.EntityPermissions) && reflect.DeepEqual(a.GrantedScopes, b.GrantedScopes) &&
 		a.ValidUntil.After(time.Now()) && b.ValidUntil.After(time.Now())

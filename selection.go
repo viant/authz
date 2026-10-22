@@ -83,6 +83,10 @@ func cloneSelection(doc SelectionDocument) SelectionDocument {
 	doc.Revisions = append([]RevisionSelection(nil), doc.Revisions...)
 	for i := range doc.Revisions {
 		policy := doc.Revisions[i].Policy
+		if policy.Named != nil {
+			ref := *policy.Named
+			policy.Named = &ref
+		}
 		policy.RequiredScopes = append([]string(nil), policy.RequiredScopes...)
 		if policy.Rule != nil {
 			rule := cloneStaticRule(*policy.Rule)
@@ -179,6 +183,7 @@ func (s *Selector) resolve(ctx context.Context, request SelectionRequest, policy
 		return SelectedResource{}, Document{}, ErrDenied
 	}
 	var facts Facts
+	var prepared *PreparedFacts
 	resolved := false
 	resolveFacts := func() error {
 		if resolved {
@@ -202,6 +207,7 @@ func (s *Selector) resolve(ctx context.Context, request SelectionRequest, policy
 		if facts.Subject == "" || facts.Issuer == "" || facts.Tenant == "" || !facts.ValidUntil.After(time.Now()) {
 			return ErrIdentityDenied
 		}
+		prepared = PrepareFacts(facts)
 		return nil
 	}
 	version := mapping.DefaultVersion
@@ -222,7 +228,7 @@ func (s *Selector) resolve(ctx context.Context, request SelectionRequest, policy
 			if revision.Policy.EntityType == "" {
 				selectorSelection = nil
 			}
-			decision, err := Evaluate(Request{Resource: candidate, Action: request.Action, Selection: selectorSelection}, map[string]Policy{request.Action: revision.Policy}, facts, time.Now())
+			decision, err := EvaluatePrepared(Request{Resource: candidate, Action: request.Action, Selection: selectorSelection}, map[string]Policy{request.Action: revision.Policy}, prepared, time.Now())
 			if errors.Is(err, ErrDenied) {
 				continue
 			}
@@ -245,16 +251,12 @@ func (s *Selector) resolve(ctx context.Context, request SelectionRequest, policy
 		if facts.Subject == "" || facts.Issuer == "" || facts.Tenant == "" || !facts.ValidUntil.After(time.Now()) || (request.Resource.Tenant != "*" && facts.Tenant != request.Resource.Tenant) {
 			return SelectedResource{}, Document{}, ErrIdentityDenied
 		}
-		exposures := map[string]bool{}
-		for _, item := range facts.Exposures {
-			exposures[item] = true
-		}
 		matched := false
 		priority := 0
 		for _, override := range mapping.Overrides {
 			allowed := true
 			for _, required := range override.RequiredExposures {
-				if !exposures[required] {
+				if !prepared.HasExposureLiteral(required) {
 					allowed = false
 					break
 				}
@@ -289,7 +291,10 @@ func (s *Selector) resolve(ctx context.Context, request SelectionRequest, policy
 	if resolved && !facts.ValidUntil.After(time.Now()) {
 		return SelectedResource{}, Document{}, ErrIdentityDenied
 	}
-	decision, err := s.Service.evaluate(ctx, Request{Resource: resource, Action: request.Action, Selection: request.Selection}, doc, facts)
+	if prepared == nil {
+		prepared = PrepareFacts(facts)
+	}
+	decision, err := s.Service.evaluatePrepared(ctx, Request{Resource: resource, Action: request.Action, Selection: request.Selection}, doc, facts, prepared)
 	if err != nil {
 		return SelectedResource{}, Document{}, err
 	}

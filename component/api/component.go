@@ -23,6 +23,7 @@ const Capability = xhandler.ValueKey("authz.sdk")
 const Package = "github.com/viant/authz/component/api"
 
 type Services struct {
+	Named            *authz.NamedAdministration
 	Authorization    *authz.Service
 	Policies         *authz.Administration
 	Gates            *gating.Evaluator
@@ -118,6 +119,7 @@ type PolicyContextOutput struct {
 	Context authz.EditorContext `json:"context"`
 }
 type Components struct {
+	Named       xdatly.Component[NamedInput, NamedOutput]            `component:"named_policies,path=/v1/authz/sdk/namedPolicies.manage,method=POST,handler=NewNamed" mcp:"[{\"kind\":\"tool\",\"name\":\"authz.sdk.namedPolicies.manage\"}]"`
 	Catalog     xdatly.Component[CatalogInput, CatalogOutput]        `component:"catalog_list,path=/v1/authz/sdk/catalog.list,method=POST,handler=NewCatalog" mcp:"[{\"kind\":\"tool\",\"name\":\"authz.sdk.catalog.list\"}]"`
 	Check       xdatly.Component[CheckInput, DecisionOutput]         `component:"check,path=/v1/authz/sdk/authorization.check,method=POST,handler=NewCheck" mcp:"[{\"kind\":\"tool\",\"name\":\"authz.sdk.authorization.check\"}]"`
 	Get         xdatly.Component[PolicyInput, PolicyOutput]          `component:"policy_get,path=/v1/authz/sdk/policies.get,method=POST,handler=NewGet" mcp:"[{\"kind\":\"tool\",\"name\":\"authz.sdk.policies.get\"}]"`
@@ -131,10 +133,12 @@ type Components struct {
 }
 
 var Datly = new(Components)
-var linkedTypes = []reflect.Type{reflect.TypeFor[Components](), reflect.TypeFor[CatalogInput](), reflect.TypeFor[CheckInput](), reflect.TypeFor[PolicyInput](), reflect.TypeFor[WriteInput](), reflect.TypeFor[GateCheckInput](), reflect.TypeFor[GateInput](), reflect.TypeFor[GateWriteInput]()}
+var linkedTypes = []reflect.Type{reflect.TypeFor[NamedInput](), reflect.TypeFor[Components](), reflect.TypeFor[CatalogInput](), reflect.TypeFor[CheckInput](), reflect.TypeFor[PolicyInput](), reflect.TypeFor[WriteInput](), reflect.TypeFor[GateCheckInput](), reflect.TypeFor[GateInput](), reflect.TypeFor[GateWriteInput]()}
 
 func (Components) DatlyHandler(name string) func() (rhandler.TypedHandler, error) {
 	switch name {
+	case "NewNamed":
+		return custom.Factory(NewNamed)
 	case "NewCatalog":
 		return custom.Factory(NewCatalog)
 	case "NewCheck":
