@@ -16,14 +16,17 @@ type HTTPIdentityConfig struct {
 	// document. Embedders can reuse the host verifier instead of configuring JWKS twice.
 	Keyfunc jwt.Keyfunc `json:"-"`
 
-	Kind                    string              `json:"kind"`
-	Issuer                  string              `json:"issuer"`
-	Audience                string              `json:"audience"`
-	Algorithms              []string            `json:"algorithms"`
-	UserInfoURL             string              `json:"userInfoUrl"`
-	JWKSURL                 string              `json:"jwksUrl"`
-	JWKSRefreshInterval     string              `json:"jwksRefreshInterval"`
-	FactLease               string              `json:"factLease"`
+	Kind                string   `json:"kind"`
+	Issuer              string   `json:"issuer"`
+	Audience            string   `json:"audience"`
+	Algorithms          []string `json:"algorithms"`
+	UserInfoURL         string   `json:"userInfoUrl"`
+	JWKSURL             string   `json:"jwksUrl"`
+	JWKSRefreshInterval string   `json:"jwksRefreshInterval"`
+	FactLease           string   `json:"factLease"`
+	// UserInfoCacheTTL defaults to fifteen minutes with a signed JWT account
+	// mapping. Without that mapping, omission preserves uncached legacy reads;
+	// an explicitly positive TTL still requires the signed account mapping.
 	UserInfoCacheTTL        string              `json:"userInfoCacheTTL,omitempty"`
 	UserInfoCacheMaxEntries int                 `json:"userInfoCacheMaxEntries,omitempty"`
 	Now                     func() time.Time    `json:"-"`

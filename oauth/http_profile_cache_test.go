@@ -372,7 +372,7 @@ func TestUserInfoCacheConfigurationBoundsAndDefault(t *testing.T) {
 		func(c *HTTPIdentityConfig) { c.UserInfoCacheTTL = "-1s" },
 		func(c *HTTPIdentityConfig) { c.UserInfoCacheMaxEntries = 65537 },
 		func(c *HTTPIdentityConfig) { c.FactLease = "61m" },
-		func(c *HTTPIdentityConfig) { c.Mapping.JWTAccountID = "" },
+		func(c *HTTPIdentityConfig) { c.UserInfoCacheTTL = "1m"; c.Mapping.JWTAccountID = "" },
 	} {
 		c := base
 		change(&c)
@@ -419,5 +419,67 @@ func TestUserInfoCacheHitExpiresOnlyRequestedEntry(t *testing.T) {
 	}
 	if f.userinfoCalls.Load() != 1 {
 		t.Fatal("cache hit fetched userinfo")
+	}
+}
+
+func TestUserInfoCacheBackwardCompatibleDefaultReads(t *testing.T) {
+	for _, tc := range []struct {
+		name, ttl     string
+		signedAccount bool
+		wantReads     int
+	}{
+		{name: "legacy-omitted", wantReads: 2},
+		{name: "legacy-explicit-disabled", ttl: "0s", wantReads: 2},
+		{name: "signed-default", signedAccount: true, wantReads: 1},
+		{name: "signed-explicit-cached", ttl: "1m", signedAccount: true, wantReads: 1},
+		{name: "signed-explicit-disabled", ttl: "0s", signedAccount: true, wantReads: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, _, c := cacheFixture(t)
+			c.UserInfoCacheTTL = tc.ttl
+			if !tc.signedAccount {
+				c.Mapping.JWTAccountID = ""
+			}
+			p := cacheIdentity(t, c)
+			ctx := WithBearer(context.Background(), cacheToken(t, f, nil))
+			first, err := p.ResolvePrincipal(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if first.AccountID != "21" || len(first.Facts.Roles) != 1 || first.Facts.Roles[0] != "editor" {
+				t.Fatal("unexpected verified profile")
+			}
+			f.mu.Lock()
+			f.info["roles"] = []string{"viewer"}
+			f.mu.Unlock()
+			second, err := p.ResolvePrincipal(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := int(f.userinfoCalls.Load()); got != tc.wantReads {
+				t.Fatalf("userinfo reads=%d,want%d", got, tc.wantReads)
+			}
+			expectedRole := "editor"
+			if tc.wantReads == 2 {
+				expectedRole = "viewer"
+				if p.cacheTTL != 0 {
+					t.Fatal("uncached legacy/disabled profile retained a positive TTL")
+				}
+			}
+			if len(second.Facts.Roles) != 1 || second.Facts.Roles[0] != expectedRole {
+				t.Fatal("profile reuse did not follow configured/default policy")
+			}
+		})
+	}
+}
+
+func TestUserInfoCacheExplicitPositiveTTLRequiresSignedAccount(t *testing.T) {
+	_, _, c := cacheFixture(t)
+	c.Mapping.JWTAccountID = ""
+	for _, ttl := range []string{"1ns", "1m", "15m"} {
+		c.UserInfoCacheTTL = ttl
+		if _, err := newHTTPIdentity(c); err == nil {
+			t.Fatalf("explicit positive cache TTL %q accepted without a signed account mapping", ttl)
+		}
 	}
 }

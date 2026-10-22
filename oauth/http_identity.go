@@ -71,7 +71,10 @@ func newHTTPIdentity(c HTTPIdentityConfig) (*HTTPIdentityProvider, error) {
 	if e != nil || lease <= 0 || lease > time.Hour {
 		return nil, fmt.Errorf("factLease must be positive and at most one hour")
 	}
-	cacheTTL := 15 * time.Minute
+	cacheTTL := time.Duration(0)
+	if c.Mapping.JWTAccountID != "" {
+		cacheTTL = 15 * time.Minute
+	}
 	if c.UserInfoCacheTTL != "" {
 		cacheTTL, e = time.ParseDuration(c.UserInfoCacheTTL)
 		if e != nil || cacheTTL < 0 || cacheTTL > 15*time.Minute {
