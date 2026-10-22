@@ -112,7 +112,11 @@ func (s *Service) AuthorizeWithRevision(ctx context.Context, request Request) (D
 	if err != nil || doc.Resource != request.Resource || doc.Revision < 1 {
 		return Decision{}, Facts{}, 0, ErrDenied
 	}
-	p, ok := PolicyForAction(doc.Policies, request.Action)
+	evaluation, dependencies, err := s.resolveNamed(ctx, doc)
+	if err != nil {
+		return Decision{}, Facts{}, 0, ErrDenied
+	}
+	p, ok := PolicyForAction(evaluation.Policies, request.Action)
 	if !ok {
 		return Decision{}, Facts{}, 0, ErrDenied
 	}
@@ -126,10 +130,10 @@ func (s *Service) AuthorizeWithRevision(ctx context.Context, request Request) (D
 			return Decision{}, Facts{}, 0, ErrDenied
 		}
 	}
-	decision, selectedFacts, err := s.evaluateSelected(ctx, request, doc, facts)
+	decision, selectedFacts, err := s.evaluateSelected(ctx, request, evaluation, facts)
 	facts = selectedFacts
 	if err == nil && s.Decisions != nil && p.Mode != "public" {
-		remote, remoteErr := s.Decisions.Evaluate(ctx, request, doc, facts)
+		remote, remoteErr := s.Decisions.Evaluate(ctx, request, evaluation, facts)
 		if remoteErr != nil || ctx.Err() != nil || !facts.ValidUntil.After(time.Now()) {
 			err = ErrDenied
 		} else {
@@ -137,6 +141,9 @@ func (s *Service) AuthorizeWithRevision(ctx context.Context, request Request) (D
 		}
 	}
 	if err != nil {
+		return Decision{}, Facts{}, 0, err
+	}
+	if err = s.fenceNamed(ctx, dependencies); err != nil {
 		return Decision{}, Facts{}, 0, err
 	}
 	return decision, facts, doc.Revision, nil
@@ -181,7 +188,11 @@ func (s *Service) authorizeDocumentWithSelection(ctx context.Context, request Re
 	if doc.Resource != request.Resource || doc.Revision < 1 {
 		return Decision{}, Facts{}, Document{}, ErrDenied
 	}
-	policy, exists := PolicyForAction(doc.Policies, request.Action)
+	evaluation, dependencies, err := s.resolveNamed(ctx, doc)
+	if err != nil {
+		return Decision{}, Facts{}, doc, err
+	}
+	policy, exists := PolicyForAction(evaluation.Policies, request.Action)
 	if !exists {
 		return Decision{}, Facts{}, doc, ErrDenied
 	}
@@ -207,7 +218,7 @@ func (s *Service) authorizeDocumentWithSelection(ctx context.Context, request Re
 			return Decision{}, Facts{}, doc, ErrSelectionRequired
 		}
 	}
-	local, facts, err := s.evaluateSelected(ctx, request, doc, facts)
+	local, facts, err := s.evaluateSelected(ctx, request, evaluation, facts)
 	if err != nil {
 		if errors.Is(err, ErrUnavailable) {
 			return Decision{}, Facts{}, Document{}, ErrUnavailable
@@ -218,9 +229,12 @@ func (s *Service) authorizeDocumentWithSelection(ctx context.Context, request Re
 		return Decision{}, Facts{}, doc, ErrDenied
 	}
 	if s.Decisions == nil || policy.Mode == "public" {
+		if err = s.fenceNamed(ctx, dependencies); err != nil {
+			return Decision{}, Facts{}, doc, err
+		}
 		return local, facts, doc, nil
 	}
-	remote, err := s.Decisions.Evaluate(ctx, request, doc, facts)
+	remote, err := s.Decisions.Evaluate(ctx, request, evaluation, facts)
 	if errors.Is(err, ErrDenied) {
 		return Decision{}, Facts{}, doc, ErrDenied
 	}
@@ -233,6 +247,9 @@ func (s *Service) authorizeDocumentWithSelection(ctx context.Context, request Re
 	decision, err := Intersect(local, remote)
 	if err != nil {
 		return Decision{}, Facts{}, doc, ErrDenied
+	}
+	if err = s.fenceNamed(ctx, dependencies); err != nil {
+		return Decision{}, Facts{}, doc, err
 	}
 	return decision, facts, doc, nil
 }
