@@ -213,6 +213,7 @@ func (s *Selector) resolve(ctx context.Context, request SelectionRequest, policy
 	version := mapping.DefaultVersion
 	var selectionDecision *Decision
 	var selectedPolicyRevision int64
+	var selectionDependencies []NamedDependency
 	if len(mapping.Revisions) > 0 {
 		if err := resolveFacts(); err != nil {
 			return SelectedResource{}, Document{}, err
@@ -224,11 +225,18 @@ func (s *Selector) resolve(ctx context.Context, request SelectionRequest, policy
 		}
 		for _, revision := range revisions {
 			candidate := Resource{Kind: request.Resource.Kind, ID: request.Resource.ID, Tenant: request.Resource.Tenant, Version: revision.Version}
+			// Selection policies may reference the same reusable definitions as
+			// resource policies. Resolve their effective bounds before evaluating.
+			evaluation, dependencies, err := s.Service.resolveNamed(ctx, Document{Resource: candidate, Revision: mapping.Revision, Policies: map[string]Policy{request.Action: revision.Policy}})
+			if err != nil {
+				return SelectedResource{}, Document{}, err
+			}
+			policy, _ := PolicyForAction(evaluation.Policies, request.Action)
 			selectorSelection := request.Selection
-			if revision.Policy.EntityType == "" {
+			if policy.EntityType == "" {
 				selectorSelection = nil
 			}
-			decision, err := EvaluatePrepared(Request{Resource: candidate, Action: request.Action, Selection: selectorSelection}, map[string]Policy{request.Action: revision.Policy}, prepared, time.Now())
+			decision, err := EvaluatePrepared(Request{Resource: candidate, Action: request.Action, Selection: selectorSelection}, evaluation.Policies, prepared, time.Now())
 			if errors.Is(err, ErrDenied) {
 				continue
 			}
@@ -238,6 +246,7 @@ func (s *Selector) resolve(ctx context.Context, request SelectionRequest, policy
 			version = revision.Version
 			selectedPolicyRevision = revision.PolicyRevision
 			selectionDecision = &decision
+			selectionDependencies = dependencies
 			break
 		}
 		if selectionDecision == nil {
@@ -279,7 +288,13 @@ func (s *Selector) resolve(ctx context.Context, request SelectionRequest, policy
 	if doc.Resource != resource || doc.Revision < 1 {
 		return SelectedResource{}, Document{}, ErrDenied
 	}
-	policy, ok := PolicyForAction(doc.Policies, request.Action)
+	// Keep the stored assignment for policy reads, but authorize its resolved
+	// named definition exactly as Service.AuthorizeWithRevision does.
+	evaluation, dependencies, err := s.Service.resolveNamed(ctx, doc)
+	if err != nil {
+		return SelectedResource{}, Document{}, err
+	}
+	policy, ok := PolicyForAction(evaluation.Policies, request.Action)
 	if !ok {
 		return SelectedResource{}, Document{}, ErrDenied
 	}
@@ -294,7 +309,7 @@ func (s *Selector) resolve(ctx context.Context, request SelectionRequest, policy
 	if prepared == nil {
 		prepared = PrepareFacts(facts)
 	}
-	decision, err := s.Service.evaluatePrepared(ctx, Request{Resource: resource, Action: request.Action, Selection: request.Selection}, doc, facts, prepared)
+	decision, err := s.Service.evaluatePrepared(ctx, Request{Resource: resource, Action: request.Action, Selection: request.Selection}, evaluation, facts, prepared)
 	if err != nil {
 		return SelectedResource{}, Document{}, err
 	}
@@ -306,6 +321,9 @@ func (s *Selector) resolve(ctx context.Context, request SelectionRequest, policy
 	}
 	if policyRead && decision.Bounded {
 		return SelectedResource{}, Document{}, ErrDenied
+	}
+	if err := s.Service.fenceNamed(ctx, append(selectionDependencies, dependencies...)); err != nil {
+		return SelectedResource{}, Document{}, err
 	}
 	selected := SelectedResource{Resource: resource, MappingRevision: mapping.Revision, PolicyRevision: doc.Revision, Decision: decision}
 	return selected, cloneStaticDocument(doc), nil
