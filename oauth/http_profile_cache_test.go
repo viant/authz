@@ -151,6 +151,55 @@ func TestUserInfoCacheFifteenMinuteRevocationAndFailedRefresh(t *testing.T) {
 		t.Fatal("successful retry missing")
 	}
 }
+
+func TestFreshOperationRenewalReadsAuthorityAndOnlySuccessfulProfileReplacesCache(t *testing.T) {
+	f, clock, c := cacheFixture(t)
+	p := cacheIdentity(t, c)
+	ctx := WithBearer(context.Background(), cacheToken(t, f, nil))
+	first, err := p.Resolve(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock.add(14 * time.Minute)
+	stampCacheInfo(f, clock.now(), 15*time.Minute)
+	f.mu.Lock()
+	f.info["roles"] = []string{"viewer"}
+	f.mu.Unlock()
+	cached, err := p.Resolve(ctx)
+	if err != nil || cached.Roles[0] != "editor" || f.userinfoCalls.Load() != 1 {
+		t.Fatal("ordinary read should retain the original cache entry", err)
+	}
+	scoped, finish, err := p.BeginFreshOperation(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := p.Resolve(scoped)
+	if err != nil || fresh.Roles[0] != "viewer" || !fresh.ValidUntil.After(first.ValidUntil) {
+		t.Fatal("renewal did not use newly verified facts and deadline", err)
+	}
+	if err = finish(); err != nil {
+		t.Fatal(err)
+	}
+	if f.userinfoCalls.Load() != 2 {
+		t.Fatal("renewal should make exactly one fresh userinfo request")
+	}
+	after, err := p.Resolve(ctx)
+	if err != nil || after.Roles[0] != "viewer" || f.userinfoCalls.Load() != 2 {
+		t.Fatal("ordinary reads should use the newly verified profile cache", err)
+	}
+	f.mu.Lock()
+	f.info["subject"] = "wrong-signed-identity"
+	f.mu.Unlock()
+	if _, _, err = p.BeginFreshOperation(ctx); err == nil {
+		t.Fatal("invalid remote profile renewed an operation")
+	}
+	if f.userinfoCalls.Load() != 3 {
+		t.Fatal("failed renewal did not contact authority")
+	}
+	if retained, e := p.Resolve(ctx); e != nil || retained.Roles[0] != "viewer" || f.userinfoCalls.Load() != 3 {
+		t.Fatal("failed refresh changed the valid ordinary cache entry", e)
+	}
+}
 func TestUserInfoCacheAccountUserProviderMappingAndScopePartition(t *testing.T) {
 	f, _, c := cacheFixture(t)
 	c.TenantByAccount["22"] = "other-tenant"

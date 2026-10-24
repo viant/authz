@@ -94,6 +94,16 @@ func (p *HTTPIdentityProvider) bindProfile(ctx context.Context, profile httpProf
 	return result, nil
 }
 func (p *HTTPIdentityProvider) readProfile(ctx context.Context) (httpProfile, error) {
+	return p.readProfileWithRefresh(ctx, false)
+}
+
+// readProfileFresh verifies current userinfo even while an ordinary profile
+// cache entry is valid. Only a successful remote read replaces that entry.
+func (p *HTTPIdentityProvider) readProfileFresh(ctx context.Context) (httpProfile, error) {
+	return p.readProfileWithRefresh(ctx, true)
+}
+
+func (p *HTTPIdentityProvider) readProfileWithRefresh(ctx context.Context, refresh bool) (httpProfile, error) {
 	claims, signed, bearer, err := p.claims(ctx)
 	if err != nil {
 		return httpProfile{}, err
@@ -113,7 +123,7 @@ func (p *HTTPIdentityProvider) readProfile(ctx context.Context) (httpProfile, er
 		delete(cache.entries, key)
 		hit = false
 	}
-	if hit {
+	if hit && !refresh {
 		cache.sequence++
 		entry.used = cache.sequence
 		cache.entries[key] = entry

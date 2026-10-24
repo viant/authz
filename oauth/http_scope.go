@@ -168,17 +168,35 @@ func (p *HTTPIdentityProvider) MetadataReadActive(ctx context.Context) bool {
 // userinfo again or comparing business roles after a producer call. No profile
 // is retained outside this context; token/account/expiry checks still apply.
 func (p *HTTPIdentityProvider) BeginOperation(ctx context.Context) (context.Context, func() error, error) {
+	return p.beginOperation(ctx, false)
+}
+
+// BeginFreshOperation starts a control-plane operation from freshly verified
+// userinfo. It never extends a cached decision or reuses an enclosing scope.
+// Business calls still belong to the producer; this is for renewing metadata
+// admission while an ordinary profile cache entry remains valid.
+func (p *HTTPIdentityProvider) BeginFreshOperation(ctx context.Context) (context.Context, func() error, error) {
+	return p.beginOperation(ctx, true)
+}
+
+func (p *HTTPIdentityProvider) beginOperation(ctx context.Context, fresh bool) (context.Context, func() error, error) {
 	if ctx == nil || ctx.Err() != nil {
 		return nil, nil, authz.ErrDenied
 	}
-	if state, _ := ctx.Value(httpScopeKey{}).(*httpScope); state != nil && state.provider == p {
+	if state, _ := ctx.Value(httpScopeKey{}).(*httpScope); !fresh && state != nil && state.provider == p {
 		if _, err := p.profile(ctx); err != nil {
 			return nil, nil, err
 		}
 		return ctx, func() error { _, err := p.profile(ctx); return err }, nil
 	}
 	base := p.withoutScope(ctx)
-	initial, err := p.readProfile(base)
+	var initial httpProfile
+	var err error
+	if fresh {
+		initial, err = p.readProfileFresh(base)
+	} else {
+		initial, err = p.readProfile(base)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
