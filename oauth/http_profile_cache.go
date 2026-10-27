@@ -12,7 +12,9 @@ import (
 type httpProfileEntry struct {
 	profile httpProfile
 	until   time.Time
-	used    uint64
+	// refreshAt applies only to new profile resolutions. Existing scopes retain until.
+	refreshAt time.Time
+	used      uint64
 }
 type httpProfileFlight struct {
 	done    chan struct{}
@@ -123,7 +125,7 @@ func (p *HTTPIdentityProvider) readProfileWithRefresh(ctx context.Context, refre
 		delete(cache.entries, key)
 		hit = false
 	}
-	if hit && !refresh {
+	if hit && !refresh && (entry.refreshAt.IsZero() || now.Before(entry.refreshAt)) {
 		cache.sequence++
 		entry.used = cache.sequence
 		cache.entries[key] = entry
@@ -180,7 +182,7 @@ func (p *HTTPIdentityProvider) readProfileWithRefresh(ctx context.Context, refre
 		}
 		cache.sequence++
 		stored := cloneHTTPProfile(profile)
-		cache.entries[key] = httpProfileEntry{profile: stored, until: until, used: cache.sequence}
+		cache.entries[key] = httpProfileEntry{profile: stored, until: until, refreshAt: profileRefreshAt(p.now(), until), used: cache.sequence}
 		flight.profile = stored
 		flight.until = until
 	}
@@ -191,4 +193,19 @@ func (p *HTTPIdentityProvider) readProfileWithRefresh(ctx context.Context, refre
 		return httpProfile{}, err
 	}
 	return p.bindProfile(ctx, profile, until, claims, signed, bearer)
+}
+
+// Refresh only the last tenth of the effective lease (at most thirty seconds),
+// coalescing new callers through the existing flight. This avoids admitting new
+// work with an almost-expired cached profile without extending any lease or
+// requiring another userinfo read on ordinary cache hits.
+func profileRefreshAt(now, until time.Time) time.Time {
+	ahead := until.Sub(now) / 10
+	if ahead > 30*time.Second {
+		ahead = 30 * time.Second
+	}
+	if ahead < 0 {
+		ahead = 0
+	}
+	return until.Add(-ahead)
 }

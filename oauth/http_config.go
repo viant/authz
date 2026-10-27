@@ -27,6 +27,9 @@ type HTTPIdentityConfig struct {
 	// UserInfoCacheTTL defaults to fifteen minutes with a signed JWT account
 	// mapping. Without that mapping, omission preserves uncached legacy reads;
 	// an explicitly positive TTL still requires the signed account mapping.
+	// New resolutions coalesce a fresh profile read near the end of its effective
+	// lease (last tenth, at most thirty seconds). Admitted scopes keep their
+	// original deadline; a failed refresh never falls back to cached grants.
 	UserInfoCacheTTL        string              `json:"userInfoCacheTTL,omitempty"`
 	UserInfoCacheMaxEntries int                 `json:"userInfoCacheMaxEntries,omitempty"`
 	Now                     func() time.Time    `json:"-"`
