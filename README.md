@@ -367,3 +367,36 @@ The graph reader is internal and has no public HTTP/MCP exposure.
 Mutable current-policy head reads are uncached. Compiled Datly runtimes remain
 reused, while policy replacement is visible immediately across HTTP and MCP.
 Caching immutable policy revisions is separate from caching the current head.
+
+### Negated rules
+
+`not` negates exactly one child rule. Combine it with `all` and `any` to mix
+positive and negative conditions. For example, this policy requires an editor
+who is not suspended:
+
+```json
+{
+  "mode": "protected",
+  "rule": {
+    "kind": "all",
+    "rules": [
+      {"kind": "role", "value": "editor"},
+      {"kind": "not", "rules": [{"kind": "role", "value": "suspended"}]}
+    ]
+  }
+}
+```
+
+A user holding both roles is denied. Negation does not bypass verified identity,
+expiry, tenant, required scopes, or entity bounds. A malformed child is rejected,
+not inverted into permission. `not` accepts exactly one child and no `value` or
+`entity`; the existing maximum rule depth still applies.
+
+To retain union semantics for limited roles, express `any(not(any(all limited
+roles)), any(roles admitted to this operation))`. An unrelated administrator role
+does not bypass that restriction unless explicitly admitted by the policy.
+
+Existing policy documents retain their semantics. Consumers must upgrade to a
+version supporting `not` before authoring such documents; older evaluators reject
+the new operator. Named policy resolution, static storage, and content hashing
+use the same rule tree without a separate expression format.

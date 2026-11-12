@@ -52,7 +52,7 @@ type Provider interface {
 }
 
 type Rule struct {
-	Kind   string  `json:"kind"` // subject, role, group, exposure, entity, all, any
+	Kind   string  `json:"kind"` // subject, role, group, exposure, entity, all, any, not
 	Value  string  `json:"value,omitempty"`
 	Entity *Entity `json:"entity,omitempty"`
 	Rules  []Rule  `json:"rules,omitempty"`
@@ -174,6 +174,8 @@ func valid(r Rule, depth int) bool {
 		return false
 	}
 	switch r.Kind {
+	case "not":
+		return r.Value == "" && r.Entity == nil && len(r.Rules) == 1 && valid(r.Rules[0], depth+1)
 	case "all", "any":
 		if len(r.Rules) == 0 || r.Value != "" || r.Entity != nil {
 			return false
@@ -195,6 +197,8 @@ func valid(r Rule, depth int) bool {
 func matchesPrepared(r Rule, prepared *PreparedFacts) bool {
 	f := prepared.facts
 	switch r.Kind {
+	case "not":
+		return !matchesPrepared(r.Rules[0], prepared)
 	case "subject":
 		return f.Subject != "" && (f.Subject == r.Value || r.Value == "*")
 	case "role":
