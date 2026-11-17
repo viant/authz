@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"slices"
 	"strings"
 	"time"
 
@@ -20,8 +21,10 @@ import (
 // Config separates the authorization issuer/audience from authoring or model
 // credentials. Keyfunc must use deployment-owned keys/JWKS, never a token URL.
 type Config struct {
-	Issuer     string
-	Audience   string
+	Issuer   string
+	Audience string
+	// Audiences adds explicitly trusted alternatives to Audience.
+	Audiences  []string
 	Algorithms []string
 	Keyfunc    jwt.Keyfunc
 }
@@ -223,7 +226,7 @@ func WithBearer(ctx context.Context, token string) context.Context {
 }
 
 func New(config Config) (*Provider, error) {
-	if config.Issuer == "" || config.Audience == "" || config.Keyfunc == nil || len(config.Algorithms) == 0 {
+	if config.Issuer == "" || (config.Audience == "" && len(config.Audiences) == 0) || config.Keyfunc == nil || len(config.Algorithms) == 0 {
 		return nil, errors.New("OAuth issuer, audience, keys and algorithms required")
 	}
 	for _, a := range config.Algorithms {
@@ -233,6 +236,19 @@ func New(config Config) (*Provider, error) {
 			return nil, errors.New("OAuth signing algorithm must be asymmetric")
 		}
 	}
+	audiences := make([]string, 0, len(config.Audiences)+1)
+	if config.Audience != "" {
+		audiences = append(audiences, config.Audience)
+	}
+	for _, audience := range config.Audiences {
+		if strings.TrimSpace(audience) == "" {
+			return nil, errors.New("OAuth audience must not be blank")
+		}
+		if !slices.Contains(audiences, audience) {
+			audiences = append(audiences, audience)
+		}
+	}
+	config.Audiences = audiences
 	config.Algorithms = append([]string(nil), config.Algorithms...)
 	return &Provider{config: config}, nil
 }

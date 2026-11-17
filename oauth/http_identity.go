@@ -152,7 +152,7 @@ func newHTTPIdentity(c HTTPIdentityConfig) (*HTTPIdentityProvider, error) {
 		return nil, fmt.Errorf("injected identity verifier cannot be combined with JWKS URL")
 	}
 
-	verifier := Config{Issuer: c.Issuer, Audience: c.Audience, Algorithms: append([]string(nil), c.Algorithms...), Keyfunc: key}
+	verifier := Config{Issuer: c.Issuer, Audience: c.Audience, Audiences: append([]string(nil), c.Audiences...), Algorithms: append([]string(nil), c.Algorithms...), Keyfunc: key}
 	if _, e = New(verifier); e != nil {
 		return nil, e
 	}

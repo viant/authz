@@ -19,6 +19,7 @@ type HTTPIdentityConfig struct {
 	Kind                string   `json:"kind"`
 	Issuer              string   `json:"issuer"`
 	Audience            string   `json:"audience"`
+	Audiences           []string `json:"audiences,omitempty"`
 	Algorithms          []string `json:"algorithms"`
 	UserInfoURL         string   `json:"userInfoUrl"`
 	JWKSURL             string   `json:"jwksUrl"`

@@ -43,7 +43,7 @@ func VerifyToken(ctx context.Context, config Config, claims jwt.Claims) (string,
 	if _, err := uniqueObject(payload); err != nil {
 		return "", authz.ErrDenied
 	}
-	_, err = jwt.ParseWithClaims(bearer, claims, verifier.config.Keyfunc, jwt.WithValidMethods(verifier.config.Algorithms), jwt.WithIssuer(verifier.config.Issuer), jwt.WithAudience(verifier.config.Audience), jwt.WithExpirationRequired(), jwt.WithIssuedAt())
+	_, err = jwt.ParseWithClaims(bearer, claims, verifier.config.Keyfunc, jwt.WithValidMethods(verifier.config.Algorithms), jwt.WithIssuer(verifier.config.Issuer), jwt.WithAudience(verifier.config.Audiences...), jwt.WithExpirationRequired(), jwt.WithIssuedAt())
 	if err != nil {
 		return "", authz.ErrDenied
 	}
