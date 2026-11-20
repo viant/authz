@@ -16,10 +16,13 @@ type HTTPIdentityConfig struct {
 	// document. Embedders can reuse the host verifier instead of configuring JWKS twice.
 	Keyfunc jwt.Keyfunc `json:"-"`
 
-	Kind                string   `json:"kind"`
-	Issuer              string   `json:"issuer"`
-	Audience            string   `json:"audience"`
-	Audiences           []string `json:"audiences,omitempty"`
+	Kind      string   `json:"kind"`
+	Issuer    string   `json:"issuer"`
+	Audience  string   `json:"audience"`
+	Audiences []string `json:"audiences,omitempty"`
+	// SkipAudienceCheck preserves the embedding authority's explicit audience policy.
+	// Signature, issuer, expiry and authoritative profile checks still apply.
+	SkipAudienceCheck   bool     `json:"skipAudienceCheck,omitempty"`
 	Algorithms          []string `json:"algorithms"`
 	UserInfoURL         string   `json:"userInfoUrl"`
 	JWKSURL             string   `json:"jwksUrl"`

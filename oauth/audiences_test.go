@@ -61,3 +61,47 @@ func TestIdentityAllowsConfiguredAudiences(t *testing.T) {
 		}
 	}
 }
+
+func TestAudienceOptOutPreservesOtherVerification(t *testing.T) {
+	pub, key, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, foreign, _ := ed25519.GenerateKey(rand.Reader)
+	config := Config{Issuer: "https://issuer.example", Audience: "original", SkipAudienceCheck: true, Algorithms: []string{"EdDSA"}, Keyfunc: func(*jwt.Token) (any, error) { return pub, nil }}
+	provider, err := NewIdentity(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name   string
+		mutate func(jwt.MapClaims)
+		badKey bool
+		allow  bool
+	}{
+		{"other audience", func(c jwt.MapClaims) { c["aud"] = "other" }, false, true},
+		{"missing audience", func(c jwt.MapClaims) { delete(c, "aud") }, false, true},
+		{"wrong issuer", func(c jwt.MapClaims) { c["iss"] = "other" }, false, false},
+		{"expired", func(c jwt.MapClaims) { c["exp"] = time.Now().Add(-time.Minute).Unix() }, false, false},
+		{"missing expiry", func(c jwt.MapClaims) { delete(c, "exp") }, false, false},
+		{"missing subject", func(c jwt.MapClaims) { delete(c, "sub") }, false, false},
+		{"wrong key", func(c jwt.MapClaims) {}, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			claims := jwt.MapClaims{"iss": config.Issuer, "sub": "owner", "aud": "original", "exp": time.Now().Add(time.Minute).Unix()}
+			tc.mutate(claims)
+			signingKey := key
+			if tc.badKey {
+				signingKey = foreign
+			}
+			token, err := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims).SignedString(signingKey)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = provider.Resolve(WithBearer(context.Background(), token))
+			if (err == nil) != tc.allow {
+				t.Fatalf("allowed=%v err=%v", tc.allow, err)
+			}
+		})
+	}
+}

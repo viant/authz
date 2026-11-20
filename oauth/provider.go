@@ -24,9 +24,12 @@ type Config struct {
 	Issuer   string
 	Audience string
 	// Audiences adds explicitly trusted alternatives to Audience.
-	Audiences  []string
-	Algorithms []string
-	Keyfunc    jwt.Keyfunc
+	Audiences []string
+	// SkipAudienceCheck disables only audience binding for a trusted authority.
+	// The zero value preserves audience validation.
+	SkipAudienceCheck bool
+	Algorithms        []string
+	Keyfunc           jwt.Keyfunc
 }
 
 type Claims struct {
@@ -226,7 +229,7 @@ func WithBearer(ctx context.Context, token string) context.Context {
 }
 
 func New(config Config) (*Provider, error) {
-	if config.Issuer == "" || (config.Audience == "" && len(config.Audiences) == 0) || config.Keyfunc == nil || len(config.Algorithms) == 0 {
+	if config.Issuer == "" || (!config.SkipAudienceCheck && config.Audience == "" && len(config.Audiences) == 0) || config.Keyfunc == nil || len(config.Algorithms) == 0 {
 		return nil, errors.New("OAuth issuer, audience, keys and algorithms required")
 	}
 	for _, a := range config.Algorithms {
