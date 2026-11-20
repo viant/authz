@@ -2,12 +2,14 @@ package oauth
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"github.com/viant/authz"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"sort"
@@ -161,11 +163,25 @@ func decodeHTTPBody(r *http.Response, max int64) (json.RawMessage, error) {
 	}
 	return b, nil
 }
-func deadlineHTTP(start, now, tokenExpiry time.Time, lease, skew time.Duration, raw json.RawMessage, evalPath, untilPath string, required bool) (time.Time, error) {
-	return deadlineHTTPWithLimit(start, now, tokenExpiry, lease, skew, raw, evalPath, untilPath, required, 5*time.Minute)
+func deadlineHTTP(ctx context.Context, start, now, tokenExpiry time.Time, lease, skew time.Duration, raw json.RawMessage, evalPath, untilPath string, required bool) (time.Time, error) {
+	return deadlineHTTPWithLimit(ctx, start, now, tokenExpiry, lease, skew, raw, evalPath, untilPath, required, 5*time.Minute)
 }
-func deadlineHTTPWithLimit(start, now, tokenExpiry time.Time, lease, skew time.Duration, raw json.RawMessage, evalPath, untilPath string, required bool, sourceMaximum time.Duration) (time.Time, error) {
+func deadlineHTTPWithLimit(ctx context.Context, start, now, tokenExpiry time.Time, lease, skew time.Duration, raw json.RawMessage, evalPath, untilPath string, required bool, sourceMaximum time.Duration) (time.Time, error) {
 	deadline := tokenExpiry
+	var evaluated, until time.Time
+	reject := func(reason string, cause error) (time.Time, error) {
+		if slog.Default().Enabled(ctx, slog.LevelDebug) {
+			fields := []any{"phase", "source_lease", "reason", reason, "configuredSkewMs", skew.Milliseconds(), "requestElapsedMs", now.Sub(start).Milliseconds(), "tokenRemainingMs", tokenExpiry.Sub(now).Milliseconds(), "factLeaseMs", lease.Milliseconds()}
+			if !evaluated.IsZero() {
+				fields = append(fields, "sourceAheadMs", evaluated.Sub(now).Milliseconds())
+			}
+			if !until.IsZero() {
+				fields = append(fields, "sourceRemainingMs", until.Sub(now).Milliseconds())
+			}
+			slog.DebugContext(ctx, "Authorization source lease rejected", fields...)
+		}
+		return time.Time{}, cause
+	}
 	cap := func(t time.Time) {
 		if t.Before(deadline) {
 			deadline = t
@@ -175,29 +191,36 @@ func deadlineHTTPWithLimit(start, now, tokenExpiry time.Time, lease, skew time.D
 	if evalPath != "" {
 		_, hasEval, e := rawHTTPPath(raw, evalPath)
 		if e != nil {
-			return time.Time{}, e
+			return reject("invalid_evaluated_at_path", e)
 		}
 		_, hasUntil, e := rawHTTPPath(raw, untilPath)
 		if e != nil || hasEval != hasUntil || required && !hasEval {
-			return time.Time{}, authz.ErrDenied
+			return reject("missing_or_unpaired_source_lease", authz.ErrDenied)
 		}
 		if hasEval {
-			evaluated, e := timeAt(raw, evalPath)
+			evaluated, e = timeAt(raw, evalPath)
 			if e != nil {
-				return time.Time{}, e
+				return reject("invalid_evaluated_at", e)
 			}
-			until, e := timeAt(raw, untilPath)
-			if e != nil || evaluated.After(now.Add(skew)) || !until.After(evaluated) || until.After(evaluated.Add(sourceMaximum)) {
-				return time.Time{}, authz.ErrDenied
+			until, e = timeAt(raw, untilPath)
+			switch {
+			case e != nil:
+				return reject("invalid_valid_until", authz.ErrDenied)
+			case evaluated.After(now.Add(skew)):
+				return reject("source_clock_ahead", authz.ErrDenied)
+			case !until.After(evaluated):
+				return reject("nonpositive_source_lease", authz.ErrDenied)
+			case until.After(evaluated.Add(sourceMaximum)):
+				return reject("source_lease_exceeds_maximum", authz.ErrDenied)
 			}
 			cap(until.Add(-skew))
 			cap(evaluated.Add(lease).Add(-skew))
 		}
 	} else if required {
-		return time.Time{}, authz.ErrDenied
+		return reject("source_lease_mapping_missing", authz.ErrDenied)
 	}
 	if !deadline.After(now) {
-		return time.Time{}, authz.ErrDenied
+		return reject("effective_lease_expired", authz.ErrDenied)
 	}
 	return deadline, nil
 }

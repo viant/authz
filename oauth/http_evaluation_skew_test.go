@@ -15,6 +15,8 @@ func TestHTTPEvaluationSourceClockSkew(t *testing.T) {
 		allow      bool
 	}{
 		{"strict default", "", 3 * time.Second, false},
+		{"sixty-second skew", "60s", 45 * time.Second, true},
+		{"beyond sixty seconds", "60s", 65 * time.Second, false},
 		{"explicit bounded skew", "5s", 3 * time.Second, true},
 		{"beyond configured bound", "5s", 6 * time.Second, false},
 	} {
@@ -58,7 +60,7 @@ func TestHTTPEvaluationSourceClockSkew(t *testing.T) {
 
 func TestHTTPEvaluationRejectsInvalidClockSkew(t *testing.T) {
 	f := newAuthorityHTTPFixture(t)
-	for _, value := range []string{"-1s", "5001ms", "invalid"} {
+	for _, value := range []string{"-1s", "60001ms", "invalid"} {
 		t.Run(value, func(t *testing.T) {
 			config := f.evaluation()
 			config.SourceClockSkew = value

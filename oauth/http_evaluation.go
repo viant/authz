@@ -39,8 +39,8 @@ func newHTTPEvaluation(p *HTTPIdentityProvider, c HTTPEvaluationConfig) (*HTTPEv
 	skew := time.Duration(0)
 	if c.SourceClockSkew != "" {
 		skew, e = time.ParseDuration(c.SourceClockSkew)
-		if e != nil || skew < 0 || skew > 5*time.Second {
-			return nil, fmt.Errorf("evaluation source clock skew must be zero to five seconds")
+		if e != nil || skew < 0 || skew > time.Minute {
+			return nil, fmt.Errorf("evaluation source clock skew must be zero to sixty seconds")
 		}
 	}
 	if c.MaxEntries < 0 {
@@ -275,7 +275,7 @@ func (e *HTTPEvaluationProvider) check(ctx context.Context, r gating.ProviderReq
 			allowed = allowed && value
 		}
 	}
-	deadline, err := deadlineHTTP(started, time.Now(), principal.Facts.ValidUntil, e.lease, e.skew, response, m.EvaluatedAt, m.ValidUntil, true)
+	deadline, err := deadlineHTTP(ctx, started, time.Now(), principal.Facts.ValidUntil, e.lease, e.skew, response, m.EvaluatedAt, m.ValidUntil, true)
 	if err != nil {
 		return gating.Decision{}, err
 	}

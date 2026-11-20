@@ -95,8 +95,8 @@ func newHTTPIdentity(c HTTPIdentityConfig) (*HTTPIdentityProvider, error) {
 	skew := time.Duration(0)
 	if c.SourceClockSkew != "" {
 		skew, e = time.ParseDuration(c.SourceClockSkew)
-		if e != nil || skew < 0 || skew > 5*time.Second {
-			return nil, fmt.Errorf("source clock skew must be zero to five seconds")
+		if e != nil || skew < 0 || skew > time.Minute {
+			return nil, fmt.Errorf("source clock skew must be zero to sixty seconds")
 		}
 	}
 	if (len(c.TenantByAccount) == 0) == (c.TenantForAllAccounts == "") {
@@ -347,7 +347,7 @@ func (p *HTTPIdentityProvider) readProfileRemote(ctx context.Context, claims *jw
 		}
 		projection[name] = value
 	}
-	deadline, e := deadlineHTTPWithLimit(started, p.now(), claims.ExpiresAt.Time, p.lease, p.skew, raw, m.EvaluatedAt, m.ValidUntil, m.RequireSourceLease, time.Hour)
+	deadline, e := deadlineHTTPWithLimit(ctx, started, p.now(), claims.ExpiresAt.Time, p.lease, p.skew, raw, m.EvaluatedAt, m.ValidUntil, m.RequireSourceLease, time.Hour)
 	if e != nil {
 		return httpProfile{}, e
 	}

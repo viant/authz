@@ -132,6 +132,19 @@ any authorization error as a denied operation. Reading a policy or hiding a UI
 control does not authorize execution. A successful bounded decision grants only
 the returned entities.
 
+For HTTP user-info and permission-evaluation providers, `sourceClockSkew` is an
+optional Go duration from `0s` through `60s`, configured independently for each
+provider. Omission means zero tolerance. For example, `"sourceClockSkew":"60s"`
+permits source evaluation timestamps up to sixty seconds ahead. The tolerance
+is subtracted from source and fact-lease expiry; it never extends token validity.
+A tolerance greater than the remaining source lease can therefore reject it.
+
+At DEBUG level, rejected source leases emit `Authorization source lease rejected`
+with a fixed reason, configured skew, source clock offset (when parsed), remaining
+source/token lifetime and request elapsed milliseconds. These events omit bearer
+tokens, source payloads, identities and raw error text. Successes do not emit
+these rejection logs.
+
 The optional OAuth adapters verify host-configured issuers, audiences and keys.
 Private identity payloads, account-to-tenant mappings, permission vocabulary and
 business inheritance belong to host-owned providers. Public code has no Viant

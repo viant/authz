@@ -34,15 +34,16 @@ type HTTPIdentityConfig struct {
 	// New resolutions coalesce a fresh profile read near the end of its effective
 	// lease (last tenth, at most thirty seconds). Admitted scopes keep their
 	// original deadline; a failed refresh never falls back to cached grants.
-	UserInfoCacheTTL        string              `json:"userInfoCacheTTL,omitempty"`
-	UserInfoCacheMaxEntries int                 `json:"userInfoCacheMaxEntries,omitempty"`
-	Now                     func() time.Time    `json:"-"`
-	SourceClockSkew         string              `json:"sourceClockSkew,omitempty"`
-	TenantByAccount         map[string]string   `json:"tenantByAccount,omitempty"`
-	TenantForAllAccounts    string              `json:"tenantForAllAccounts,omitempty"`
-	Mapping                 HTTPIdentityMapping `json:"mapping"`
-	Query                   map[string]string   `json:"query,omitempty"`
-	Client                  *http.Client        `json:"-"`
+	UserInfoCacheTTL        string           `json:"userInfoCacheTTL,omitempty"`
+	UserInfoCacheMaxEntries int              `json:"userInfoCacheMaxEntries,omitempty"`
+	Now                     func() time.Time `json:"-"`
+	// SourceClockSkew permits 0–60s of future source timestamps; it is subtracted from lease expiry. Default zero is strict.
+	SourceClockSkew      string              `json:"sourceClockSkew,omitempty"`
+	TenantByAccount      map[string]string   `json:"tenantByAccount,omitempty"`
+	TenantForAllAccounts string              `json:"tenantForAllAccounts,omitempty"`
+	Mapping              HTTPIdentityMapping `json:"mapping"`
+	Query                map[string]string   `json:"query,omitempty"`
+	Client               *http.Client        `json:"-"`
 }
 type HTTPIdentityMapping struct {
 	Subject            string            `json:"subject"`
@@ -66,7 +67,7 @@ type HTTPIdentityMapping struct {
 // Evaluation names are ordinary endpoint field paths, not protocol extensions.
 // Entitlement bindings keep business requirement names in operator configuration.
 type HTTPEvaluationConfig struct {
-	// SourceClockSkew is explicit tolerance for the evaluation endpoint only; zero remains strict.
+	// SourceClockSkew is explicit 0–60s tolerance for evaluation timestamps; zero remains strict and expiry is shortened by this amount.
 	SourceClockSkew        string                            `json:"sourceClockSkew,omitempty"`
 	URL                    string                            `json:"url"`
 	CacheTTL               string                            `json:"cacheTTL,omitempty"`
